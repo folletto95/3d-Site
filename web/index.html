@@ -48,7 +48,7 @@
       <div class="card">
         <h2>Palette (seleziona materiale)</h2>
         <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
-        <p class="hint">Ogni voce mostra: <b>Materiale</b> — <span class="sub">Nome colore (HEX)</span> — <b>€/kg</b>.</p>
+        <p class="hint">Ogni voce mostra: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>.</p>
       </div>
 
       <div class="card">
@@ -122,11 +122,11 @@
           const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
           if(!it.is_transparent){ dot.style.backgroundColor = hex; }
-          dot.title = `${colorName} (${hex})`; dot.setAttribute('aria-hidden','true');
+          dot.title = colorName; dot.setAttribute('aria-hidden','true');
 
           const col = document.createElement('div');
           const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
-          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = `${colorName} (${hex})`;
+          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = colorName;
           col.appendChild(t1); col.appendChild(t2);
 
           left.appendChild(dot); left.appendChild(col);

@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /api
 
 # Evita bytecode e buffer, e soprattutto prompt interattivi di apt
 ENV PYTHONDONTWRITEBYTECODE=1

@@ -65,7 +65,6 @@ def _price_per_kg_from_spool(spool, filament):
             pass
     return _price_per_kg_from_filament(filament)
 
-# --- rilevamento "trasparente" da testi comuni (IT/EN) ---
 TRANSPARENT_PAT = re.compile(
     r"(transparent|translucent|clear|crystal|glass|natural|natura|traspar|trasluc|neutro)",
     re.I
@@ -115,7 +114,7 @@ def ui():
 def health():
     return {"ok": True}
 
-# ---- API normalizzate (prezzi/dati da BOBINE) ----
+# ---- API normalizzate (dati da BOBINE) ----
 @app.get("/spools")
 def spools():
     sp = _get(f"{API_V1}/spool", params={"allow_archived": False, "limit": 1000})
@@ -159,9 +158,7 @@ def inventory():
         is_transparent = _detect_transparent(s, f)
 
         key = (color_hex, material, diameter, is_transparent)
-        b = buckets.setdefault(key, {
-            "count": 0, "remaining_g": 0.0, "price_per_kg": None
-        })
+        b = buckets.setdefault(key, {"count": 0, "remaining_g": 0.0, "price_per_kg": None})
         b["count"] += 1
         rw = _first(s, ["remaining_weight", "remaining_weight_g"])
         if rw is not None:

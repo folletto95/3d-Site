@@ -18,7 +18,6 @@
     .pill[aria-selected="true"]{outline:2px solid var(--accent)}
     .left{display:flex;align-items:center;gap:12px}
     .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
-    /* effetto scacchiera per "Trasparente" */
     .dot.transparent{
       background-image:
         linear-gradient(45deg,#999 25%,transparent 25%),
@@ -37,6 +36,7 @@
     button{cursor:pointer}
     .hint{color:var(--muted);font-size:13px}
     .viewer{height:520px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+    .viewer.drag{border-color:var(--accent); color:var(--accent)}
   </style>
 </head>
 <body>
@@ -65,7 +65,7 @@
         <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
         <button id="btnFetch">Calcola da URL</button>
       </div>
-      <p class="hint">Dopo il caricamento scegli un materiale dalla palette; il prezzo €/kg arriva dalle <b>bobine</b>.</p>
+      <p class="hint">Dopo il caricamento scegli un materiale dalla palette; il prezzo €/kg arriva dalle <b>bobine</b>. Aggiornamento elenco ogni 60 s.</p>
     </div>
   </div>
 
@@ -110,8 +110,6 @@
         .forEach(it=>{
           const hex = (it.color || '#777777').toUpperCase();
           const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
-
-          // nome colore: usa quello dell'API se presente (es. "Trasparente"), altrimenti mappa base
           const colorName = it.color_name || nearestBasicName(hex);
 
           const row = document.createElement('div');
@@ -140,13 +138,18 @@
     }
 
     // ---------- upload / fetch ----------
+    async function uploadFileOrBlob(file){
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/upload_model', {method:'POST', body: fd});
+      if(!r.ok){ alert('Upload fallito'); return; }
+      const j = await r.json();
+      showViewer(j.viewer_url, j.filename);
+    }
+
     async function uploadFile(){
       const f = document.getElementById('file').files[0];
       if(!f){ alert('Seleziona un file'); return; }
-      const fd = new FormData(); fd.append('file', f);
-      const r = await fetch('/upload_model', {method:'POST', body: fd});
-      const j = await r.json();
-      showViewer(j.viewer_url, j.filename);
+      uploadFileOrBlob(f);
     }
 
     async function fetchFromUrl(){
@@ -154,8 +157,18 @@
       if(!url){ alert('Inserisci una URL'); return; }
       const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
       const j = await r.json();
-      showViewer(j.viewer_url, j.filename);
+      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
     }
+
+    // drag & drop
+    const viewer = document.getElementById('viewer');
+    viewer.addEventListener('dragover', e => { e.preventDefault(); viewer.classList.add('drag'); });
+    viewer.addEventListener('dragleave', () => viewer.classList.remove('drag'));
+    viewer.addEventListener('drop', e => {
+      e.preventDefault(); viewer.classList.remove('drag');
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ uploadFileOrBlob(f); }
+    });
 
     function showViewer(path, name){
       const v = document.getElementById('viewer');

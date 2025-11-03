@@ -301,7 +301,9 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4, filame
         "-s", f"machine_nozzle_size={nozzle}",
         "-s", f"material_diameter={filament_diam}",
         "-s", f"speed_travel={travel_speed*60/1000:.2f}",  # mm/s -> mm/min (se richiesto)
-        "-s", f"speed_print={print_speed*60/1000:.2f}"
+        "-s", f"speed_print={print_speed*60/1000:.2f}",
+        # MATRICE IDENTITÀ PER EVITARE L’ERRORE SU CURA RECENTI
+        "-s", "mesh_rotation_matrix=[[1,0,0],[0,1,0],[0,0,1]]"
     ]
     cp = subprocess.run(cura_args, capture_output=True, text=True, timeout=180)
     if cp.returncode != 0:

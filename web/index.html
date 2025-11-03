@@ -13,15 +13,11 @@
     .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
     h1{margin:0 0 12px;font-size:28px}
     h2{margin:0 0 12px;font-size:18px}
-    .palette{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;max-height:520px;overflow:auto;padding-right:4px;align-content:start}
-    .palette{scrollbar-width:thin;scrollbar-color:var(--ring) transparent}
-    .palette::-webkit-scrollbar{width:6px}
-    .palette::-webkit-scrollbar-thumb{background:var(--ring);border-radius:999px}
-    .pill{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;gap:6px 10px;padding:10px 12px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;min-height:0;transition:border-color .2s,box-shadow .2s,transform .2s}
-    .pill:hover{border-color:var(--accent);transform:translateY(-1px)}
-    .pill[aria-selected="true"]{border-color:var(--accent);box-shadow:0 0 0 1px rgba(56,189,248,.35)}
-    .pill:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-    .dot{grid-column:1;grid-row:1/span 2;width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
+    .palette{display:flex;flex-direction:column;gap:10px;max-height:460px;overflow:auto;padding-right:6px}
+    .pill{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:16px;background:#0b1527;border:1px solid var(--ring);cursor:pointer}
+    .pill[aria-selected="true"]{outline:2px solid var(--accent)}
+    .left{display:flex;align-items:center;gap:12px}
+    .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
     .dot.transparent{
       background-image:
         linear-gradient(45deg,#999 25%,transparent 25%),
@@ -32,27 +28,31 @@
       background-position:0 0,0 4px,4px -4px,-4px 0;
       background-color:#fff;
     }
-    .title{grid-column:2;font-weight:600;font-size:15px;line-height:1.25}
-    .sub{grid-column:2/4;grid-row:2;font-size:12px;color:var(--muted);line-height:1.25}
-    .price{grid-column:3;grid-row:1;justify-self:end;font-weight:700;font-size:14px;color:var(--accent)}
+    .title{font-weight:700}
+    .sub{font-size:12px;color:var(--muted)}
+    .price{font-weight:800}
     .row{display:flex;gap:12px;align-items:center}
-    input[type="file"],input[type="text"],button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
+    input[type="file"],input[type="text"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
     button{cursor:pointer}
     .hint{color:var(--muted);font-size:13px}
-    .viewer{height:520px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+    .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
     .viewer.drag{border-color:var(--accent); color:var(--accent)}
+    .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
+    @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
+    .out{margin-top:12px;font-size:14px}
+    .out b{color:#fff}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Magazzino Filamenti & Stima</h1>
-    <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server.</p>
+    <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
 
     <div class="grid">
       <div class="card">
         <h2>Palette (seleziona materiale)</h2>
         <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
-        <p class="hint">Ogni voce mostra: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>.</p>
+        <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore (HEX)</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
       </div>
 
       <div class="card">
@@ -62,19 +62,63 @@
     </div>
 
     <div class="card" style="margin-top:18px">
-      <h2>Stima tempi & costi</h2>
+      <h2>File & Stima</h2>
       <div class="row" style="flex-wrap:wrap">
         <input id="file" type="file" accept=".stl,.obj,.3mf,.zip" />
         <button id="btnUpload">Carica</button>
         <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
-        <button id="btnFetch">Calcola da URL</button>
+        <button id="btnFetch">Da URL</button>
       </div>
-      <p class="hint">Dopo il caricamento scegli un materiale dalla palette; il prezzo €/kg arriva dalle <b>bobine</b>. Aggiornamento elenco ogni 60 s.</p>
+
+      <div class="est">
+        <label>Layer
+          <select id="layer_h">
+            <option value="0.20">0.20 mm</option>
+            <option value="0.16">0.16 mm</option>
+            <option value="0.12">0.12 mm</option>
+            <option value="0.28">0.28 mm</option>
+          </select>
+        </label>
+        <label>Infill
+          <select id="infill">
+            <option value="15">15%</option>
+            <option value="5">5%</option>
+            <option value="20">20%</option>
+            <option value="40">40%</option>
+          </select>
+        </label>
+        <label>Nozzle
+          <select id="nozzle">
+            <option value="0.4">0.4 mm</option>
+            <option value="0.6">0.6 mm</option>
+            <option value="0.2">0.2 mm</option>
+          </select>
+        </label>
+        <label>Print speed
+          <select id="print_speed">
+            <option value="60">60 mm/s</option>
+            <option value="80">80 mm/s</option>
+            <option value="40">40 mm/s</option>
+          </select>
+        </label>
+        <label>Travel speed
+          <select id="travel_speed">
+            <option value="150">150 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="100">100 mm/s</option>
+          </select>
+        </label>
+        <div style="display:flex;align-items:end">
+          <button id="btnEstimate">Stima</button>
+        </div>
+      </div>
+
+      <div id="out" class="out"></div>
     </div>
   </div>
 
   <script>
-    // ---------- util colore accessibile ----------
+    // ---------- util colore ----------
     function hexToRgb(hex){
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
       return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:127,g:127,b:127};
@@ -97,6 +141,7 @@
 
     // ---------- stato ----------
     let selectedKey = null;
+    let currentViewerUrl = null;
     const REFRESH_MS = 60000; // 60 s
 
     // ---------- palette ----------
@@ -121,23 +166,22 @@
           row.setAttribute('role','option');
           row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
           row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
-          row.tabIndex = 0;
-          const selectRow = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
-          row.onclick = selectRow;
-          row.onkeydown = (ev)=>{ if(ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); selectRow(); } };
+          row.onclick = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
 
+          const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
           if(!it.is_transparent){ dot.style.backgroundColor = hex; }
-          dot.title = colorName; dot.setAttribute('aria-hidden','true');
+          dot.title = `${colorName} (${hex})`; dot.setAttribute('aria-hidden','true');
 
-          const title = document.createElement('div'); title.className='title'; title.textContent = it.material || 'n/d';
+          const col = document.createElement('div');
+          const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
+          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = `${colorName} (${hex})`;
+          col.appendChild(t1); col.appendChild(t2);
+
+          left.appendChild(dot); left.appendChild(col);
           const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
-          const sub = document.createElement('div'); sub.className='sub'; sub.textContent = colorName;
 
-          row.appendChild(dot);
-          row.appendChild(title);
-          row.appendChild(priceEl);
-          row.appendChild(sub);
+          row.appendChild(left); row.appendChild(priceEl);
           box.appendChild(row);
         });
     }
@@ -176,13 +220,41 @@
     });
 
     function showViewer(path, name){
+      currentViewerUrl = path;
       const v = document.getElementById('viewer');
       v.innerHTML = `Caricato: <b>${name}</b><br><span class="hint">Anteprima 3D in arrivo (per ora link diretto):</span><br><a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+      document.getElementById('out').innerHTML = '';
+    }
+
+    async function estimate(){
+      if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
+      if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
+      const payload = {
+        viewer_url: currentViewerUrl,
+        inventory_key: selectedKey,
+        settings: {
+          layer_h: parseFloat(document.getElementById('layer_h').value),
+          infill: parseFloat(document.getElementById('infill').value),
+          nozzle: parseFloat(document.getElementById('nozzle').value),
+          print_speed: parseFloat(document.getElementById('print_speed').value),
+          travel_speed: parseFloat(document.getElementById('travel_speed').value)
+        }
+      };
+      const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const j = await r.json();
+      if(!r.ok){ alert(j.detail || 'Errore stima'); return; }
+      const tmin = Math.round(j.time_s/60);
+      document.getElementById('out').innerHTML = `
+        Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
+        Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
+        Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
+      `;
     }
 
     // ---------- init ----------
     document.getElementById('btnUpload').onclick = uploadFile;
     document.getElementById('btnFetch').onclick  = fetchFromUrl;
+    document.getElementById('btnEstimate').onclick  = estimate;
     loadPalette();
     setInterval(loadPalette, REFRESH_MS);
   </script>

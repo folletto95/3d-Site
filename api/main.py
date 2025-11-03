@@ -1,4 +1,4 @@
-import os, re, io, uuid, zipfile, string
+import os, re, io, uuid, zipfile
 from pathlib import Path
 import requests
 from fastapi import FastAPI, HTTPException, UploadFile, File, Body
@@ -36,72 +36,13 @@ def _get(url, params=None):
         raise HTTPException(status_code=502, detail=f"Errore contattando Spoolman: {e}")
 
 def _ensure_color_hex(v):
-    """Return a normalized #RRGGBB hex string or None when invalid."""
-    if not v:
-        return None
-    s = str(v).strip().lower()
-    if not s:
-        return None
-    if s.startswith("0x"):
-        s = s[2:]
-    if s.startswith("#"):
-        s = s[1:]
-    if len(s) in (3, 4):
-        if all(c in string.hexdigits.lower() for c in s):
-            # Handle short notation #rgb or #rgba → expand rgb and drop alpha
-            s = "".join(ch * 2 for ch in s[:3])
-        else:
-            return None
-    elif len(s) in (6, 8):
-        if not all(c in string.hexdigits.lower() for c in s):
-            return None
-        if len(s) == 8:
-            s = s[:6]
-    else:
-        return None
-    return f"#{s.upper()}"
-
-
-def _extract_color_label(*values):
-    for value in values:
-        if not value:
-            continue
-        text = str(value).strip()
-        if not text:
-            continue
-        if _ensure_color_hex(text):
-            # Pure hex values are handled separately; keep looking for a human label
-            continue
-        return text
-    return None
+    if not v: return None
+    return v if str(v).startswith("#") else f"#{v}"
 
 def _first(d: dict, keys):
-    if not isinstance(d, dict):
-        return None
     for k in keys:
         if d.get(k) is not None:
             return d[k]
-    return None
-
-
-def _extract_color_hex(spool: dict, filament: dict):
-    candidates = [
-        _first(spool, [
-            "color_hex",
-            "colour_hex",
-            "colorHex",
-            "colourHex",
-            "filament_color_hex",
-            "filament_colour_hex",
-        ]),
-        _first(filament, ["color_hex", "colour_hex", "colorHex", "colourHex"]),
-        _first(spool, ["color", "colour"]),
-        _first(filament, ["color", "colour"]),
-    ]
-    for candidate in candidates:
-        hex_value = _ensure_color_hex(candidate)
-        if hex_value:
-            return hex_value
     return None
 
 def _price_per_kg_from_filament(f):
@@ -180,16 +121,8 @@ def spools():
     out = []
     for s in sp:
         f = _extract_filament_from_spool(s)
-        color_hex = _extract_color_hex(s, f) or "#777777"
+        color_hex = _ensure_color_hex(_first(s, ["color_hex"]) or f.get("color_hex"))
         is_transparent = _detect_transparent(s, f)
-        color_label = _extract_color_label(
-            _first(s, ["color_name", "colour_name"]),
-            _first(f, ["color_name", "colour_name"]),
-            _first(s, ["color", "colour"]),
-            _first(f, ["color", "colour"]),
-        )
-        if is_transparent:
-            color_label = color_label or "Trasparente"
         price_per_kg = _price_per_kg_from_spool(s, f)
         out.append({
             "id": s.get("id"),
@@ -198,7 +131,7 @@ def spools():
             "diameter_mm": f.get("diameter"),
             "color_hex": color_hex,
             "is_transparent": is_transparent,
-            "color_name": color_label,
+            "color_name": "Trasparente" if is_transparent else None,
             "remaining_weight_g": _first(s, ["remaining_weight", "remaining_weight_g"]),
             "remaining_length_m": (float(_first(s, ["remaining_length"])) / 1000.0) if _first(s, ["remaining_length"]) else None,
             "price_per_kg": price_per_kg,
@@ -219,21 +152,13 @@ def inventory():
     buckets = {}
     for s in sp:
         f = _extract_filament_from_spool(s)
-        color_hex = _extract_color_hex(s, f) or "#777777"
+        color_hex = _ensure_color_hex(_first(s, ["color_hex"]) or f.get("color_hex")) or "#777777"
         material = f.get("material") or "N/A"
         diameter = str(f.get("diameter") or "")
         is_transparent = _detect_transparent(s, f)
-        color_label = _extract_color_label(
-            _first(s, ["color_name", "colour_name"]),
-            _first(f, ["color_name", "colour_name"]),
-            _first(s, ["color", "colour"]),
-            _first(f, ["color", "colour"]),
-        )
-        if is_transparent:
-            color_label = color_label or "Trasparente"
 
         key = (color_hex, material, diameter, is_transparent)
-        b = buckets.setdefault(key, {"count": 0, "remaining_g": 0.0, "price_per_kg": None, "color_name": None})
+        b = buckets.setdefault(key, {"count": 0, "remaining_g": 0.0, "price_per_kg": None})
         b["count"] += 1
         rw = _first(s, ["remaining_weight", "remaining_weight_g"])
         if rw is not None:
@@ -241,8 +166,6 @@ def inventory():
         ppk = _price_per_kg_from_spool(s, f)
         if ppk is not None and (b["price_per_kg"] is None or ppk < b["price_per_kg"]):
             b["price_per_kg"] = ppk
-        if color_label and not b["color_name"]:
-            b["color_name"] = color_label
 
     items = []
     for (color, material, diameter, is_transparent), data in buckets.items():
@@ -256,7 +179,7 @@ def inventory():
             "price_per_kg": data["price_per_kg"],
             "currency": CURRENCY,
             "is_transparent": is_transparent,
-            "color_name": data.get("color_name") or ("Trasparente" if is_transparent else None)
+            "color_name": "Trasparente" if is_transparent else None
         })
     return _no_cache({"items": items, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
 

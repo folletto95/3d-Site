@@ -2,7 +2,7 @@ services:
   app:
     container_name: spoolsite
     build:
-      context: ./api
+      context: .
       dockerfile: ./api/Dockerfile
     ports:
       - "8088:8080"

@@ -140,14 +140,21 @@
     }
 
     // ---------- stato ----------
-    let selectedKey = null;
-    let currentViewerUrl = null;
+let selectedKey = null;
+let currentViewerUrl = null;
+// Hold the most recent inventory items fetched from the server.
+// Each element includes keys such as `key`, `color`, `material`, `diameter_mm`, `price_per_kg` and `is_transparent`.
+// This cache is used later to apply the selected filament colour to the 3D model
+// and to lookup the current selection for estimating costs.
+let inventoryItems = [];
     const REFRESH_MS = 60000; // 60 s
 
     // ---------- palette ----------
     async function loadPalette(){
       const res = await fetch('/inventory?nocache='+Date.now());
       const data = await res.json();
+  // Cache the items globally so other functions (e.g. showViewer) can access details
+  inventoryItems = Array.isArray(data.items) ? data.items : [];
       renderPalette(data.items || []);
     }
 
@@ -304,12 +311,52 @@
       // Load the model
       loader.load(path, (result) => {
         let object;
-        // For STL, result is a geometry; wrap it in a Mesh
+        // Determine the selected spool details to apply colour and transparency
+        const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+        let hex = sel.color || '#aaaaaa';
+        // Ensure hex starts with '#'
+        if(!hex.startsWith('#')) hex = '#' + hex;
+        const col = new THREE.Color(hex);
+        const isTransp = Boolean(sel.is_transparent);
+        // For STL, result is a geometry; wrap it in a Mesh with custom material
         if(extMatch === 'stl'){
-          const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+          const material = new THREE.MeshStandardMaterial({
+            color: col,
+            transparent: isTransp,
+            opacity: isTransp ? 0.6 : 1.0,
+            metalness: 0.1,
+            roughness: 0.8
+          });
           object = new THREE.Mesh(result, material);
         } else {
           object = result;
+          // Traverse all child meshes and update their material colour
+          object.traverse((child) => {
+            if(child.isMesh){
+              // If the mesh has a material, clone it to avoid affecting shared materials
+              let mat = child.material;
+              if(Array.isArray(mat)){
+                mat = mat.map(m => m.clone());
+              } else if(mat){
+                mat = mat.clone();
+              }
+              // Set colour and transparency
+              if(mat){
+                if(Array.isArray(mat)){
+                  mat.forEach(m => {
+                    m.color = col.clone();
+                    m.transparent = isTransp;
+                    m.opacity = isTransp ? 0.6 : 1.0;
+                  });
+                } else {
+                  mat.color = col.clone();
+                  mat.transparent = isTransp;
+                  mat.opacity = isTransp ? 0.6 : 1.0;
+                }
+                child.material = mat;
+              }
+            }
+          });
         }
         scene.add(object);
         // Center the object and adjust camera

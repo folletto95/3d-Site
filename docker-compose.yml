@@ -7,7 +7,7 @@ services:
     environment:
       - SPOOLMAN_URL=http://192.168.10.164:7912
       - HOURLY_RATE=1
-      - CURRENCY=EUR
+#      - CURRENCY=EUR
     ports:
       - "8088:8080"
     volumes:

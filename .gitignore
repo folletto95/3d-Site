@@ -1,0 +1,46 @@
+# General
+.DS_Store
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Virtual environment/packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Environment configuration
+.env
+.env.*
+
+# IDE/editor directories
+.vscode/
+.idea/
+*.iml
+
+# Docker
+*.pid
+
+# Node / frontend
+node_modules/
+yarn.lock
+package-lock.json
+
+# Coverage reports
+coverage/
+

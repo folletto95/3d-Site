@@ -275,35 +275,42 @@ DENSITY = {
     "NYLON": 1.14, "PA": 1.14, "PC": 1.20, "PET": 1.38
 }
 def _density_for(material: str):
-    if not material: return 1.24
+    if not material:
+        return 1.24
     m = material.upper()
-    for k,v in DENSITY.items():
-        if k in m: return v
+    for k, v in DENSITY.items():
+        if k in m:
+            return v
     return 1.24
 
 def _grams_from_length_mm(length_mm: float, diameter_mm: float, density_g_cm3: float):
     # volume (mm^3) = Area * lunghezza; Area = pi*(d/2)^2
-    area_mm2 = math.pi * (diameter_mm/2.0)**2
+    area_mm2 = math.pi * (diameter_mm / 2.0) ** 2
     vol_mm3 = area_mm2 * length_mm
     # 1 cm3 = 1000 mm3
     vol_cm3 = vol_mm3 / 1000.0
     return vol_cm3 * density_g_cm3
 
-def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4, filament_diam=1.75, travel_speed=150, print_speed=60):
+CURA_DEFS_DIR = Path(__file__).resolve().parent / "cura_defs"
+
+def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
+                    filament_diam=1.75, travel_speed=150, print_speed=60):
     out_gcode = model_path.with_suffix(".gcode")
-    # mapping basilare (chiavi CuraEngine comuni)
     cura_args = [
-        "CuraEngine","slice",
+        "CuraEngine", "slice",
+        # Carica le definizioni di base e quelle della X1C (ordine: base, macchina, estrusore)
+        "-j", str(CURA_DEFS_DIR / "fdmprinter.def.json"),
+        "-j", str(CURA_DEFS_DIR / "fdmextruder.def.json"),
+        "-j", str(CURA_DEFS_DIR / "bambu_x1c.def.json"),
+        "-j", str(CURA_DEFS_DIR / "bambu_x1c_extruder_0.def.json"),
         "-l", str(model_path),
         "-o", str(out_gcode),
         "-s", f"layerHeight={layer_h}",
         "-s", f"infill_sparse_density={infill}",
         "-s", f"machine_nozzle_size={nozzle}",
         "-s", f"material_diameter={filament_diam}",
-        "-s", f"speed_travel={travel_speed*60/1000:.2f}",  # mm/s -> mm/min (se richiesto)
-        "-s", f"speed_print={print_speed*60/1000:.2f}",
-        # MATRICE IDENTITÀ PER EVITARE L’ERRORE SU CURA RECENTI
-        "-s", "mesh_rotation_matrix=[[1,0,0],[0,1,0],[0,0,1]]"
+        "-s", f"speed_travel={travel_speed * 60 / 1000:.2f}",
+        "-s", f"speed_print={print_speed * 60 / 1000:.2f}",
     ]
     cp = subprocess.run(cura_args, capture_output=True, text=True, timeout=180)
     if cp.returncode != 0:
@@ -315,10 +322,12 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4, filame
     time_s = int(m_time.group(1)) if m_time else None
 
     # parse filamento (mm / m / g)
-    filament_mm = None; filament_g = None
+    filament_mm = None
+    filament_g = None
     m_f = re.search(r"[Ff]ilament used[:=]?\s*([\d\.]+)\s*(mm|m|cm|g)", text)
     if m_f:
-        val = float(m_f.group(1)); unit = m_f.group(2).lower()
+        val = float(m_f.group(1))
+        unit = m_f.group(2).lower()
         if unit == "g":
             filament_g = val
         elif unit == "m":
@@ -372,7 +381,7 @@ def slice_estimate(payload: dict = Body(...)):
     infill = float(settings.get("infill", 15))
     nozzle = float(settings.get("nozzle", 0.4))
     print_speed = float(settings.get("print_speed", 60))   # mm/s
-    travel_speed = float(settings.get("travel_speed", 150))# mm/s
+    travel_speed = float(settings.get("travel_speed", 150))  # mm/s
 
     r = _run_cura_slice(
         model_path=model_path,
@@ -387,8 +396,8 @@ def slice_estimate(payload: dict = Body(...)):
             raise HTTPException(status_code=500, detail="Impossibile leggere il consumo filamento dallo slicer")
         filament_g = _grams_from_length_mm(r["filament_mm"], diam, _density_for(mat))
 
-    cost_filament = (filament_g/1000.0) * float(price_per_kg)
-    cost_machine  = (time_s/3600.0) * HOURLY_RATE
+    cost_filament = (filament_g / 1000.0) * float(price_per_kg)
+    cost_machine = (time_s / 3600.0) * HOURLY_RATE
     total = cost_filament + cost_machine
 
     return _no_cache({

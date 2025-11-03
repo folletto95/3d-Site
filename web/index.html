@@ -39,8 +39,18 @@
     input[type="file"],input[type="text"],button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
     button{cursor:pointer}
     .hint{color:var(--muted);font-size:13px}
-    .viewer{height:520px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
-    .viewer.drag{border-color:var(--accent); color:var(--accent)}
+    .viewer{position:relative;height:520px;border-radius:16px;border:1px dashed var(--ring);background:#0b1527;overflow:hidden}
+    .viewer.drag{border-color:var(--accent);color:var(--accent)}
+    .viewer canvas{width:100%;height:100%;display:block}
+    .viewer-message{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;color:var(--muted);pointer-events:none;padding:0 12px;font-size:14px;transition:opacity .3s}
+    .viewer-message b{color:var(--text)}
+    .viewer.has-model{border-style:solid}
+    .viewer.has-model .viewer-message{opacity:0}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
+    .stat{background:#0b1527;border:1px solid var(--ring);border-radius:14px;padding:12px}
+    .stat-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+    .stat-value{font-weight:600;font-size:18px;color:var(--text)}
+    .stat-sub{font-size:13px;color:var(--muted)}
   </style>
 </head>
 <body>
@@ -57,7 +67,13 @@
 
       <div class="card">
         <h2>Viewer 3D (STL/3MF/OBJ)</h2>
-        <div id="viewer" class="viewer" aria-live="polite">Trascina qui un file o caricalo dal pulsante sotto.</div>
+        <div id="viewer" class="viewer" aria-live="polite">
+          <canvas id="viewerCanvas" aria-hidden="true"></canvas>
+          <div id="viewerMessage" class="viewer-message">
+            <b>Viewer 3D</b>
+            <span>Trascina qui un file oppure usate i pulsanti sotto per caricare un modello STL/OBJ/3MF.</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -70,10 +86,25 @@
         <button id="btnFetch">Calcola da URL</button>
       </div>
       <p class="hint">Dopo il caricamento scegli un materiale dalla palette; il prezzo €/kg arriva dalle <b>bobine</b>. Aggiornamento elenco ogni 60 s.</p>
+      <div id="stats" class="stats" aria-live="polite">
+        <div class="stat"><div class="stat-title">Volume modello</div><div id="statVolume" class="stat-value">-</div><div id="statDims" class="stat-sub"></div></div>
+        <div class="stat"><div class="stat-title">Peso stimato</div><div id="statWeight" class="stat-value">-</div><div id="statFilament" class="stat-sub"></div></div>
+        <div class="stat"><div class="stat-title">Tempo stimato</div><div id="statTime" class="stat-value">-</div><div id="statSpeed" class="stat-sub"></div></div>
+        <div class="stat"><div class="stat-title">Costo materiale</div><div id="statMaterialCost" class="stat-value">-</div><div id="statPriceInfo" class="stat-sub"></div></div>
+        <div class="stat"><div class="stat-title">Costo macchina</div><div id="statMachineCost" class="stat-value">-</div><div id="statHourly" class="stat-sub"></div></div>
+        <div class="stat"><div class="stat-title">Totale stimato</div><div id="statTotal" class="stat-value">-</div><div id="statSummary" class="stat-sub"></div></div>
+      </div>
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.159.0/build/three.module.js";
+    import { OrbitControls } from "https://unpkg.com/three@0.159.0/examples/jsm/controls/OrbitControls.js";
+    import { STLLoader } from "https://unpkg.com/three@0.159.0/examples/jsm/loaders/STLLoader.js";
+    import { OBJLoader } from "https://unpkg.com/three@0.159.0/examples/jsm/loaders/OBJLoader.js";
+    import { ThreeMFLoader } from "https://unpkg.com/three@0.159.0/examples/jsm/loaders/3MFLoader.js";
+    import { BufferGeometryUtils } from "https://unpkg.com/three@0.159.0/examples/jsm/utils/BufferGeometryUtils.js";
+
     // ---------- util colore accessibile ----------
     function hexToRgb(hex){
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
@@ -96,24 +127,336 @@
     }
 
     // ---------- stato ----------
-    let selectedKey = null;
     const REFRESH_MS = 60000; // 60 s
+    const MATERIAL_DENSITY = {
+      "PLA": 1.24,
+      "PLA+": 1.25,
+      "PETG": 1.27,
+      "ABS": 1.04,
+      "ASA": 1.07,
+      "TPU": 1.21,
+      "FLEX": 1.21,
+      "NYLON": 1.15,
+      "PA": 1.14,
+      "PC": 1.20,
+      "HIPS": 1.04,
+      "PP": 0.91,
+      "PCTG": 1.27,
+      "PVB": 1.19
+    };
+    const DEFAULT_DENSITY = 1.24; // g/cm3
+    const INFILL_RATIO = 0.20;    // 20% infill standard
+    const SHELL_RATIO = 0.25;     // perimetri/solidi pieni
+    const EFFECTIVE_VOLUME_FACTOR = Math.min(0.95, INFILL_RATIO + SHELL_RATIO);
+    const AVG_SPEED_MM_S = 45;    // mm/s estrusione media
+    const TRAVEL_FACTOR = 1.25;   // fattore per movimenti a vuoto e pause
+
+    let selectedKey = null;
+    let paletteItems = [];
+    let hourlyRate = 0;
+    let currency = 'EUR';
+    let currentModel = null;
+    let viewerInitialized = false;
+    let renderer = null;
+    let scene = null;
+    let camera = null;
+    let controls = null;
+    let mesh = null;
+    let grid = null;
+
+    const viewer = document.getElementById('viewer');
+    const viewerCanvas = document.getElementById('viewerCanvas');
+    const viewerMessage = document.getElementById('viewerMessage');
+
+    const statVolume = document.getElementById('statVolume');
+    const statDims = document.getElementById('statDims');
+    const statWeight = document.getElementById('statWeight');
+    const statFilament = document.getElementById('statFilament');
+    const statTime = document.getElementById('statTime');
+    const statSpeed = document.getElementById('statSpeed');
+    const statMaterialCost = document.getElementById('statMaterialCost');
+    const statPriceInfo = document.getElementById('statPriceInfo');
+    const statMachineCost = document.getElementById('statMachineCost');
+    const statHourly = document.getElementById('statHourly');
+    const statTotal = document.getElementById('statTotal');
+    const statSummary = document.getElementById('statSummary');
+
+    function ensureViewer(){
+      if(viewerInitialized) return;
+      viewerInitialized = true;
+      renderer = new THREE.WebGLRenderer({canvas: viewerCanvas, antialias: true, alpha: true});
+      renderer.setPixelRatio(window.devicePixelRatio || 1);
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(45, viewer.clientWidth / Math.max(viewer.clientHeight, 1), 0.1, 5000);
+      camera.position.set(120, 120, 120);
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.target.set(0, 0, 0);
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x1e1e1e, 0.85);
+      scene.add(hemi);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+      dir.position.set(0.8, 1, 0.6);
+      scene.add(dir);
+      grid = new THREE.GridHelper(200, 20, 0x1f2937, 0x1f2937);
+      grid.position.y = -0.0001;
+      scene.add(grid);
+
+      function resize(){
+        const w = viewer.clientWidth || 1;
+        const h = viewer.clientHeight || 1;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      (function animate(){
+        requestAnimationFrame(animate);
+        if(controls) controls.update();
+        if(renderer && scene && camera){
+          renderer.render(scene, camera);
+        }
+      })();
+    }
+
+    function resetStats(){
+      statVolume.textContent = '-';
+      statDims.textContent = '';
+      statWeight.textContent = '-';
+      statFilament.textContent = '';
+      statTime.textContent = '-';
+      statSpeed.textContent = '';
+      statMaterialCost.textContent = '-';
+      statPriceInfo.textContent = '';
+      statMachineCost.textContent = '-';
+      statHourly.textContent = '';
+      statTotal.textContent = '-';
+      statSummary.textContent = '';
+    }
+
+    function getSelectedSpool(){
+      return paletteItems.find(p => p.key === selectedKey);
+    }
+
+    function densityForMaterial(mat){
+      if(!mat) return DEFAULT_DENSITY;
+      const key = mat.toString().trim().toUpperCase();
+      if(MATERIAL_DENSITY[key] != null) return MATERIAL_DENSITY[key];
+      const plain = key.replace(/[^A-Z]/g, '');
+      for(const k of Object.keys(MATERIAL_DENSITY)){
+        if(plain.includes(k)) return MATERIAL_DENSITY[k];
+      }
+      return DEFAULT_DENSITY;
+    }
+
+    function applyMaterialToMesh(){
+      if(!mesh) return;
+      const spool = getSelectedSpool();
+      const hex = (spool && spool.color) ? spool.color : '#38bdf8';
+      const color = new THREE.Color(hex);
+      mesh.material.color.copy(color);
+      mesh.material.transparent = !!(spool && spool.is_transparent);
+      mesh.material.opacity = (spool && spool.is_transparent) ? 0.6 : 1;
+      mesh.material.needsUpdate = true;
+    }
+
+    function updateEstimates(){
+      resetStats();
+      if(!currentModel){
+        viewer.classList.remove('has-model');
+        viewerMessage.innerHTML = '<b>Viewer 3D</b><span>Trascina qui un file oppure usa i pulsanti per caricarlo.</span>';
+        return;
+      }
+      viewer.classList.add('has-model');
+      const {name, volumeMM3, effectiveVolumeMM3, dimensions} = currentModel;
+      const spool = getSelectedSpool();
+      const density = densityForMaterial(spool ? spool.material : null);
+      const diameter = spool && spool.diameter_mm ? Number(spool.diameter_mm) : 1.75;
+      const area = Math.PI * Math.pow(diameter / 2, 2);
+      const weightG = (effectiveVolumeMM3 / 1000) * density;
+      const lengthMM = area > 0 ? (effectiveVolumeMM3 / area) : 0;
+      const timeHours = (lengthMM / AVG_SPEED_MM_S) / 3600 * TRAVEL_FACTOR;
+      const pricePerKg = spool && spool.price_per_kg != null ? Number(spool.price_per_kg) : null;
+      const materialCost = pricePerKg != null ? (weightG / 1000) * pricePerKg : null;
+      const machineCost = hourlyRate ? timeHours * hourlyRate : null;
+      const currenciesMatch = !(spool && spool.currency && currency && spool.currency !== currency);
+      const totalCost = currenciesMatch ? (materialCost || 0) + (machineCost || 0) : null;
+      const colName = spool ? (spool.color_name || nearestBasicName(spool.color)) : null;
+
+      statVolume.textContent = `${(volumeMM3 / 1000).toFixed(2)} cm³`;
+      statDims.textContent = `Dim: ${dimensions.x.toFixed(1)} × ${dimensions.y.toFixed(1)} × ${dimensions.z.toFixed(1)} mm`;
+      statWeight.textContent = `${weightG.toFixed(1)} g`;
+      statFilament.textContent = `Lunghezza ~ ${(lengthMM / 1000).toFixed(2)} m (Ø ${diameter.toFixed(2)} mm)`;
+      statTime.textContent = `${timeHours.toFixed(2)} h`;
+      statSpeed.textContent = `Velocità media ${AVG_SPEED_MM_S} mm/s`;
+
+      if(materialCost != null){
+        statMaterialCost.textContent = `${materialCost.toFixed(2)} ${spool.currency || currency}`;
+        statPriceInfo.textContent = `Prezzo spool ${pricePerKg.toFixed(2)} ${spool.currency || currency}/kg`;
+      } else {
+        statMaterialCost.textContent = 'n/d';
+        statPriceInfo.textContent = 'Prezzo bobina non disponibile';
+      }
+
+      if(machineCost != null){
+        statMachineCost.textContent = `${machineCost.toFixed(2)} ${currency}`;
+        statHourly.textContent = `Tariffa ${hourlyRate.toFixed(2)} ${currency}/h`;
+      } else {
+        statMachineCost.textContent = hourlyRate ? `${(timeHours * hourlyRate).toFixed(2)} ${currency}` : 'n/d';
+        statHourly.textContent = hourlyRate ? `Tariffa ${hourlyRate.toFixed(2)} ${currency}/h` : 'Tariffa non impostata';
+      }
+
+      if(totalCost != null){
+        const finalCurrency = spool && spool.currency ? spool.currency : currency;
+        statTotal.textContent = `${totalCost.toFixed(2)} ${finalCurrency}`;
+        statSummary.textContent = spool ? `${spool.material || 'Materiale'} — ${colName || 'Colore'} — ${name}` : 'Seleziona un materiale dalla palette per i costi.';
+      } else {
+        statTotal.textContent = 'n/d';
+        statSummary.textContent = spool ? `Valuta bobina (${spool.currency}) diversa dalla tariffa (${currency}).` : 'Seleziona un materiale dalla palette per i costi.';
+      }
+
+      viewerMessage.innerHTML = `<b>${name}</b><span>Modello caricato. Usa il mouse per orbitare e la rotellina per zoom.</span>`;
+      applyMaterialToMesh();
+    }
+
+    function clearMesh(){
+      if(mesh){
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        mesh = null;
+      }
+    }
+
+    function computeVolume(geometry){
+      const g = geometry.index ? geometry.toNonIndexed() : geometry.clone();
+      const pos = g.attributes.position.array;
+      const v1 = new THREE.Vector3();
+      const v2 = new THREE.Vector3();
+      const v3 = new THREE.Vector3();
+      const cross = new THREE.Vector3();
+      let volume = 0;
+      for(let i=0;i<pos.length;i+=9){
+        v1.set(pos[i], pos[i+1], pos[i+2]);
+        v2.set(pos[i+3], pos[i+4], pos[i+5]);
+        v3.set(pos[i+6], pos[i+7], pos[i+8]);
+        volume += v1.dot(cross.copy(v2).cross(v3));
+      }
+      return Math.abs(volume) / 6.0;
+    }
+
+    function centerGeometry(geometry){
+      geometry.computeBoundingBox();
+      const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+      geometry.translate(-center.x, -center.y, -center.z);
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+    }
+
+    function adjustView(geometry){
+      if(!geometry.boundingSphere) geometry.computeBoundingSphere();
+      const radius = Math.max(geometry.boundingSphere.radius || 1, 1);
+      const dist = radius * 2.6;
+      camera.position.set(dist, dist * 0.9, dist);
+      controls.target.set(0, 0, 0);
+      controls.update();
+      if(grid){
+        const scale = Math.max(1, radius / 80);
+        grid.scale.set(scale, 1, scale);
+      }
+    }
+
+    async function loadModel(url, name){
+      ensureViewer();
+      viewerMessage.innerHTML = `<b>${name}</b><span>Caricamento in corso...</span>`;
+      viewer.classList.remove('has-model');
+      resetStats();
+
+      const manager = new THREE.LoadingManager();
+      const extMatch = (name || url).split('.').pop().toLowerCase();
+      let loader = null;
+      if(extMatch === 'stl') loader = new STLLoader(manager);
+      else if(extMatch === 'obj') loader = new OBJLoader(manager);
+      else if(extMatch === '3mf') loader = new ThreeMFLoader(manager);
+      else throw new Error(`Estensione non supportata: ${extMatch}`);
+
+      return new Promise((resolve, reject) => {
+        loader.load(url, object => {
+          let geometry = null;
+          if(object.isBufferGeometry || object.isGeometry){
+            geometry = object.clone();
+          } else if(object.isGroup || object.isObject3D){
+            const geoms = [];
+            object.traverse(child => {
+              if(child.isMesh && child.geometry){
+                const g = child.geometry.clone();
+                geoms.push(g.index ? g.toNonIndexed() : g);
+              }
+            });
+            if(geoms.length){
+              geometry = BufferGeometryUtils.mergeGeometries(geoms, true);
+            }
+          }
+          if(!geometry){
+            reject(new Error('Impossibile estrarre la geometria dal file.'));
+            return;
+          }
+          if(geometry.index){
+            geometry = geometry.toNonIndexed();
+          }
+          geometry.computeVertexNormals();
+          centerGeometry(geometry);
+          const volume = computeVolume(geometry);
+          const dims = geometry.boundingBox.getSize(new THREE.Vector3());
+          clearMesh();
+          mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color: 0x38bdf8, metalness: 0.1, roughness: 0.75, transparent: false}));
+          scene.add(mesh);
+          adjustView(geometry);
+
+          const effective = volume * EFFECTIVE_VOLUME_FACTOR;
+          currentModel = {
+            name,
+            volumeMM3: volume,
+            effectiveVolumeMM3: effective,
+            dimensions: dims
+          };
+          updateEstimates();
+          resolve();
+        }, undefined, err => {
+          viewerMessage.innerHTML = `<b>${name}</b><span>Errore durante il caricamento.</span>`;
+          currentModel = null;
+          clearMesh();
+          reject(err);
+        });
+      });
+    }
 
     // ---------- palette ----------
     async function loadPalette(){
       const res = await fetch('/inventory?nocache='+Date.now());
       const data = await res.json();
-      renderPalette(data.items || []);
+      paletteItems = Array.isArray(data.items) ? data.items.slice() : [];
+      hourlyRate = data.hourly_rate != null ? Number(data.hourly_rate) : 0;
+      currency = data.currency || 'EUR';
+      if(selectedKey && !paletteItems.some(p => p.key === selectedKey)){
+        selectedKey = null;
+      }
+      renderPalette(paletteItems);
+      updateEstimates();
     }
 
     function renderPalette(items){
       const box = document.getElementById('palette');
       box.innerHTML = '';
       items
+        .slice()
         .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color||'').localeCompare(b.color||'' ) )
         .forEach(it=>{
           const hex = (it.color || '#777777').toUpperCase();
-          const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
+          const price = (it.price_per_kg!=null) ? `${Number(it.price_per_kg).toFixed(2)} ${it.currency}/kg` : 'n/d';
           const colorName = it.color_name || nearestBasicName(hex);
 
           const row = document.createElement('div');
@@ -122,7 +465,13 @@
           row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
           row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
           row.tabIndex = 0;
-          const selectRow = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
+          const selectRow = ()=>{
+            selectedKey = it.key;
+            [...box.children].forEach(c=>c.setAttribute('aria-selected','false'));
+            row.setAttribute('aria-selected','true');
+            applyMaterialToMesh();
+            updateEstimates();
+          };
           row.onclick = selectRow;
           row.onkeydown = (ev)=>{ if(ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); selectRow(); } };
 
@@ -140,6 +489,11 @@
           row.appendChild(sub);
           box.appendChild(row);
         });
+
+      const active = [...box.children].find(c => c.getAttribute('aria-selected') === 'true');
+      if(!active && box.children.length){
+        box.children[0].click();
+      }
     }
 
     // ---------- upload / fetch ----------
@@ -148,13 +502,19 @@
       const r = await fetch('/upload_model', {method:'POST', body: fd});
       if(!r.ok){ alert('Upload fallito'); return; }
       const j = await r.json();
-      showViewer(j.viewer_url, j.filename);
+      const url = new URL(j.viewer_url, window.location.origin).href;
+      try {
+        await loadModel(url, j.filename);
+      } catch (err){
+        console.error(err);
+        alert('Impossibile visualizzare il modello.');
+      }
     }
 
     async function uploadFile(){
       const f = document.getElementById('file').files[0];
       if(!f){ alert('Seleziona un file'); return; }
-      uploadFileOrBlob(f);
+      await uploadFileOrBlob(f);
     }
 
     async function fetchFromUrl(){
@@ -162,11 +522,20 @@
       if(!url){ alert('Inserisci una URL'); return; }
       const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
       const j = await r.json();
-      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
+      if(j.viewer_url){
+        try {
+          const abs = new URL(j.viewer_url, window.location.origin).href;
+          await loadModel(abs, j.filename);
+        } catch (err){
+          console.error(err);
+          alert('Impossibile visualizzare il modello.');
+        }
+      } else {
+        alert('Nessun modello trovato');
+      }
     }
 
     // drag & drop
-    const viewer = document.getElementById('viewer');
     viewer.addEventListener('dragover', e => { e.preventDefault(); viewer.classList.add('drag'); });
     viewer.addEventListener('dragleave', () => viewer.classList.remove('drag'));
     viewer.addEventListener('drop', e => {
@@ -175,14 +544,10 @@
       if(f){ uploadFileOrBlob(f); }
     });
 
-    function showViewer(path, name){
-      const v = document.getElementById('viewer');
-      v.innerHTML = `Caricato: <b>${name}</b><br><span class="hint">Anteprima 3D in arrivo (per ora link diretto):</span><br><a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
-    }
-
     // ---------- init ----------
     document.getElementById('btnUpload').onclick = uploadFile;
     document.getElementById('btnFetch').onclick  = fetchFromUrl;
+    ensureViewer();
     loadPalette();
     setInterval(loadPalette, REFRESH_MS);
   </script>

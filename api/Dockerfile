@@ -17,15 +17,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 3) Codice dell'app (main.py, cura_defs con i json Bambu, ecc.)
-COPY . .
+# 3) Pacchetti base
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-# 4) Aggiungi le definizioni base di Cura (fdmprinter / fdmextruder)
-RUN mkdir -p /api/cura_defs && \
-    #git clone --depth 1 https://github.com/Ultimaker/Cura.git /tmp/cura_src && \
-    #cp /tmp/cura_src/resources/definitions/fdmprinter.def.json /api/cura_defs/ && \
-    #cp /tmp/cura_src/resources/extruders/fdmextruder.def.json /api/cura_defs/ && \
-    rm -rf /tmp/cura_src
+# 4) Definizioni Cura: fdmprinter / fdmextruder (prese dal repo ufficiale)
+ARG CURA_TAG=5.11.0
+RUN set -eux; \
+  mkdir -p /api/cura_defs; \
+  base="https://raw.githubusercontent.com/Ultimaker/Cura/${CURA_TAG}/resources/definitions"; \
+  curl -fsSL "$base/fdmprinter.def.json"  -o /api/cura_defs/fdmprinter.def.json; \
+  curl -fsSL "$base/fdmextruder.def.json" -o /api/cura_defs/fdmextruder.def.json
 
 EXPOSE 8080
 

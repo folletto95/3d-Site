@@ -13,11 +13,15 @@
     .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
     h1{margin:0 0 12px;font-size:28px}
     h2{margin:0 0 12px;font-size:18px}
-    .palette{display:flex;flex-direction:column;gap:10px;max-height:520px;overflow:auto;padding-right:6px}
-    .pill{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:16px;background:#0b1527;border:1px solid var(--ring);cursor:pointer}
-    .pill[aria-selected="true"]{outline:2px solid var(--accent)}
-    .left{display:flex;align-items:center;gap:12px}
-    .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
+    .palette{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;max-height:520px;overflow:auto;padding-right:4px;align-content:start}
+    .palette{scrollbar-width:thin;scrollbar-color:var(--ring) transparent}
+    .palette::-webkit-scrollbar{width:6px}
+    .palette::-webkit-scrollbar-thumb{background:var(--ring);border-radius:999px}
+    .pill{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;gap:6px 10px;padding:10px 12px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;min-height:0;transition:border-color .2s,box-shadow .2s,transform .2s}
+    .pill:hover{border-color:var(--accent);transform:translateY(-1px)}
+    .pill[aria-selected="true"]{border-color:var(--accent);box-shadow:0 0 0 1px rgba(56,189,248,.35)}
+    .pill:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    .dot{grid-column:1;grid-row:1/span 2;width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
     .dot.transparent{
       background-image:
         linear-gradient(45deg,#999 25%,transparent 25%),
@@ -28,9 +32,9 @@
       background-position:0 0,0 4px,4px -4px,-4px 0;
       background-color:#fff;
     }
-    .title{font-weight:700}
-    .sub{font-size:12px;color:var(--muted)}
-    .price{font-weight:800}
+    .title{grid-column:2;font-weight:600;font-size:15px;line-height:1.25}
+    .sub{grid-column:2/4;grid-row:2;font-size:12px;color:var(--muted);line-height:1.25}
+    .price{grid-column:3;grid-row:1;justify-self:end;font-weight:700;font-size:14px;color:var(--accent)}
     .row{display:flex;gap:12px;align-items:center}
     input[type="file"],input[type="text"],button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
     button{cursor:pointer}
@@ -117,22 +121,23 @@
           row.setAttribute('role','option');
           row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
           row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
-          row.onclick = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
+          row.tabIndex = 0;
+          const selectRow = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
+          row.onclick = selectRow;
+          row.onkeydown = (ev)=>{ if(ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); selectRow(); } };
 
-          const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
           if(!it.is_transparent){ dot.style.backgroundColor = hex; }
           dot.title = colorName; dot.setAttribute('aria-hidden','true');
 
-          const col = document.createElement('div');
-          const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
-          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = colorName;
-          col.appendChild(t1); col.appendChild(t2);
-
-          left.appendChild(dot); left.appendChild(col);
+          const title = document.createElement('div'); title.className='title'; title.textContent = it.material || 'n/d';
           const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
+          const sub = document.createElement('div'); sub.className='sub'; sub.textContent = colorName;
 
-          row.appendChild(left); row.appendChild(priceEl);
+          row.appendChild(dot);
+          row.appendChild(title);
+          row.appendChild(priceEl);
+          row.appendChild(sub);
           box.appendChild(row);
         });
     }

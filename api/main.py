@@ -1,4 +1,3 @@
-import math
 import os, re, io, uuid, zipfile
 from pathlib import Path
 import requests
@@ -6,8 +5,6 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
-
-import trimesh
 
 app = FastAPI(title="Spoolsite API")
 
@@ -103,77 +100,6 @@ def _extract_filament_from_spool(spool):
     for k in ("filament_weight", "weight_g", "weight"):
         if spool.get(k) is not None: legacy["weight"] = spool[k]; break
     return legacy if legacy else {}
-
-
-def _unit_to_mm(unit: str) -> float:
-    unit = (unit or "mm").strip().lower()
-    if unit in ("mm", "millimeter", "millimetre"):
-        return 1.0
-    if unit in ("cm", "centimeter", "centimetre"):
-        return 10.0
-    if unit in ("m", "meter", "metre"):
-        return 1000.0
-    if unit in ("in", "inch", "inches"):
-        return 25.4
-    if unit in ("ft", "feet", "foot"):
-        return 304.8
-    return 1.0
-
-
-def _analyze_model(path: Path):
-    try:
-        mesh = trimesh.load(str(path), force="mesh", skip_materials=True)
-    except Exception as exc:  # pragma: no cover - trimesh specific failures
-        return {"error": f"Analisi modello fallita: {exc}"}
-
-    if mesh is None or getattr(mesh, "is_empty", False):
-        return {"error": "Mesh vuota o non supportata"}
-
-    unit = getattr(mesh, "units", "mm")
-    mm_scale = float(_unit_to_mm(unit))
-
-    volume_raw = float(getattr(mesh, "volume", 0.0) or 0.0)
-    area_raw = float(getattr(mesh, "area", 0.0) or 0.0)
-    watertight = bool(getattr(mesh, "is_watertight", False))
-
-    approx_volume = False
-    volume_mm3 = volume_raw * (mm_scale ** 3)
-    if (not volume_mm3 or math.isclose(volume_mm3, 0.0)) and hasattr(mesh, "convex_hull"):
-        try:
-            volume_mm3 = float(mesh.convex_hull.volume) * (mm_scale ** 3)
-            approx_volume = True
-        except Exception:
-            volume_mm3 = 0.0
-
-    area_mm2 = area_raw * (mm_scale ** 2)
-
-    bbox = getattr(mesh, "bounding_box_oriented", None)
-    if bbox is not None:
-        extents = [float(v) * mm_scale for v in bbox.extents]
-    else:
-        extents = [float(v) * mm_scale for v in getattr(mesh, "extents", [0.0, 0.0, 0.0])]
-
-    triangles = 0
-    try:
-        triangles = int(getattr(mesh, "faces", []).__len__())
-    except Exception:
-        triangles = 0
-
-    centroid = [0.0, 0.0, 0.0]
-    if hasattr(mesh, "centroid"):
-        centroid = [float(c) * mm_scale for c in mesh.centroid]
-
-    return {
-        "units": unit,
-        "scale_to_mm": mm_scale,
-        "volume_mm3": volume_mm3,
-        "surface_area_mm2": area_mm2,
-        "is_watertight": watertight,
-        "approximate_volume": approx_volume,
-        "triangle_count": triangles,
-        "bbox_mm": [float(x) for x in extents],
-        "centroid_mm": centroid,
-    }
 
 # ---- Routes base/UI ----
 @app.get("/")
@@ -292,12 +218,7 @@ async def upload_model(file: UploadFile = File(...)):
         model_path = m
 
     rel = model_path.relative_to(UPLOAD_ROOT).as_posix()
-    analysis = _analyze_model(model_path)
-    return _no_cache({
-        "viewer_url": f"/files/{rel}",
-        "filename": model_path.name,
-        "analysis": analysis,
-    })
+    return _no_cache({"viewer_url": f"/files/{rel}", "filename": model_path.name})
 
 @app.post("/fetch_model")
 def fetch_model(payload: dict = Body(...)):
@@ -340,11 +261,6 @@ def fetch_model(payload: dict = Body(...)):
             model_path = m
 
         rel = model_path.relative_to(UPLOAD_ROOT).as_posix()
-        analysis = _analyze_model(model_path)
-        return _no_cache({
-            "viewer_url": f"/files/{rel}",
-            "filename": model_path.name,
-            "analysis": analysis,
-        })
+        return _no_cache({"viewer_url": f"/files/{rel}", "filename": model_path.name})
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Download fallito: {e}")

@@ -1,0 +1,19 @@
+services:
+  site:
+    build:
+      context: .              # <— build dalla root così possiamo copiare /web e /api
+      dockerfile: api/Dockerfile
+    container_name: spoolsite
+    environment:
+      # Base URL di Spoolman (senza /api/v1)
+      SPOOLMAN_URL: "http://192.168.10.164:7912"
+      # Valuta da visualizzare (non la chiediamo a Spoolman): 
+      CURRENCY: "EUR"
+      # Prezzo orario fisso richiesto:
+      HOURLY_RATE: "1"
+    volumes:
+      - ./web:/app/web:ro
+      - ./uploads:/app/uploads
+    ports:
+      - "8088:8080"
+    restart: unless-stopped

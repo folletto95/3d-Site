@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Magazzino Filamenti & Stima</title>
+  <style>
+    :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
+    .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media (max-width:1000px){.grid{grid-template-columns:1fr}}
+    .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
+    h1{margin:0 0 12px;font-size:28px}
+    h2{margin:0 0 12px;font-size:18px}
+    .palette{display:flex;flex-direction:column;gap:10px;max-height:520px;overflow:auto;padding-right:6px}
+    .pill{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:16px;background:#0b1527;border:1px solid var(--ring);cursor:pointer}
+    .pill[aria-selected="true"]{outline:2px solid var(--accent)}
+    .left{display:flex;align-items:center;gap:12px}
+    .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
+    /* effetto scacchiera per "Trasparente" */
+    .dot.transparent{
+      background-image:
+        linear-gradient(45deg,#999 25%,transparent 25%),
+        linear-gradient(-45deg,#999 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#999 75%),
+        linear-gradient(-45deg,transparent 75%,#999 75%);
+      background-size:8px 8px;
+      background-position:0 0,0 4px,4px -4px,-4px 0;
+      background-color:#fff;
+    }
+    .title{font-weight:700}
+    .sub{font-size:12px;color:var(--muted)}
+    .price{font-weight:800}
+    .row{display:flex;gap:12px;align-items:center}
+    input[type="file"],input[type="text"],button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
+    button{cursor:pointer}
+    .hint{color:var(--muted);font-size:13px}
+    .viewer{height:520px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Magazzino Filamenti & Stima</h1>
+    <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Palette (seleziona materiale)</h2>
+        <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
+        <p class="hint">Ogni voce mostra: <b>Materiale</b> — <span class="sub">Nome colore (HEX)</span> — <b>€/kg</b>.</p>
+      </div>
+
+      <div class="card">
+        <h2>Viewer 3D (STL/3MF/OBJ)</h2>
+        <div id="viewer" class="viewer" aria-live="polite">Trascina qui un file o caricalo dal pulsante sotto.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h2>Stima tempi & costi</h2>
+      <div class="row" style="flex-wrap:wrap">
+        <input id="file" type="file" accept=".stl,.obj,.3mf,.zip" />
+        <button id="btnUpload">Carica</button>
+        <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
+        <button id="btnFetch">Calcola da URL</button>
+      </div>
+      <p class="hint">Dopo il caricamento scegli un materiale dalla palette; il prezzo €/kg arriva dalle <b>bobine</b>.</p>
+    </div>
+  </div>
+
+  <script>
+    // ---------- util colore accessibile ----------
+    function hexToRgb(hex){
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
+      return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:127,g:127,b:127};
+    }
+    const BASIC = {
+      "#000000":"Nero", "#FFFFFF":"Bianco", "#FF0000":"Rosso", "#00FF00":"Verde",
+      "#0000FF":"Blu", "#FFFF00":"Giallo", "#FFA500":"Arancione", "#FFC0CB":"Rosa",
+      "#800080":"Viola", "#A52A2A":"Marrone", "#808080":"Grigio", "#00FFFF":"Ciano",
+      "#008000":"Verde scuro", "#ADD8E6":"Azzurro", "#FFD700":"Oro", "#8B4513":"Terra di Siena"
+    };
+    function nearestBasicName(hex){
+      const {r,g,b}=hexToRgb(hex), entries=Object.entries(BASIC);
+      let best=entries[0][0], dist=1e9;
+      for(const [h] of entries){
+        const c=hexToRgb(h); const d=(r-c.r)**2+(g-c.g)**2+(b-c.b)**2;
+        if(d<dist){dist=d;best=h}
+      }
+      return BASIC[best];
+    }
+
+    // ---------- stato ----------
+    let selectedKey = null;
+    const REFRESH_MS = 60000; // 60 s
+
+    // ---------- palette ----------
+    async function loadPalette(){
+      const res = await fetch('/inventory?nocache='+Date.now());
+      const data = await res.json();
+      renderPalette(data.items || []);
+    }
+
+    function renderPalette(items){
+      const box = document.getElementById('palette');
+      box.innerHTML = '';
+      items
+        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color||'').localeCompare(b.color||'' ) )
+        .forEach(it=>{
+          const hex = (it.color || '#777777').toUpperCase();
+          const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
+
+          // nome colore: usa quello dell'API se presente (es. "Trasparente"), altrimenti mappa base
+          const colorName = it.color_name || nearestBasicName(hex);
+
+          const row = document.createElement('div');
+          row.className='pill';
+          row.setAttribute('role','option');
+          row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
+          row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
+          row.onclick = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
+
+          const left = document.createElement('div'); left.className='left';
+          const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
+          if(!it.is_transparent){ dot.style.backgroundColor = hex; }
+          dot.title = `${colorName} (${hex})`; dot.setAttribute('aria-hidden','true');
+
+          const col = document.createElement('div');
+          const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
+          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = `${colorName} (${hex})`;
+          col.appendChild(t1); col.appendChild(t2);
+
+          left.appendChild(dot); left.appendChild(col);
+          const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
+
+          row.appendChild(left); row.appendChild(priceEl);
+          box.appendChild(row);
+        });
+    }
+
+    // ---------- upload / fetch ----------
+    async function uploadFile(){
+      const f = document.getElementById('file').files[0];
+      if(!f){ alert('Seleziona un file'); return; }
+      const fd = new FormData(); fd.append('file', f);
+      const r = await fetch('/upload_model', {method:'POST', body: fd});
+      const j = await r.json();
+      showViewer(j.viewer_url, j.filename);
+    }
+
+    async function fetchFromUrl(){
+      const url = document.getElementById('url').value.trim();
+      if(!url){ alert('Inserisci una URL'); return; }
+      const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
+      const j = await r.json();
+      showViewer(j.viewer_url, j.filename);
+    }
+
+    function showViewer(path, name){
+      const v = document.getElementById('viewer');
+      v.innerHTML = `Caricato: <b>${name}</b><br><span class="hint">Anteprima 3D in arrivo (per ora link diretto):</span><br><a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+    }
+
+    // ---------- init ----------
+    document.getElementById('btnUpload').onclick = uploadFile;
+    document.getElementById('btnFetch').onclick  = fetchFromUrl;
+    loadPalette();
+    setInterval(loadPalette, REFRESH_MS);
+  </script>
+</body>
+</html>

@@ -52,7 +52,14 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Magazzino Filamenti & Stima</h1>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <h1 style="margin:0">Magazzino Filamenti & Stima</h1>
+      <div>
+        <button id="openSlicer" title="Apri il Slicer" style="border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:8px 12px;cursor:pointer">
+          Apri Slicer
+        </button>
+      </div>
+    </div>
     <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
 
     <div class="grid">
@@ -348,6 +355,15 @@
     document.getElementById('btnFetch').onclick=fetchFromUrl;
     document.getElementById('btnEstimate').onclick=estimate;
     loadPalette(); setInterval(loadPalette, REFRESH_MS);
+
+    // Apri lo slicer nello stesso tab
+    const openSlicerBtn = document.getElementById('openSlicer');
+    if(openSlicerBtn){
+      openSlicerBtn.addEventListener('click', ()=> {
+        // apri /slicer.html nello stesso tab
+        window.location.href = '/slicer.html';
+      });
+    }
   </script>
 </body>
 </html>

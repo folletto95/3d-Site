@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Slicer completo - Viewer & Stima</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;display:flex;height:100vh}
+    #viewer{flex:1;background:#222}
+    #panel{width:380px;padding:12px;background:#f7f7f7;box-shadow:-2px 0 8px rgba(0,0,0,0.15);overflow:auto}
+    label{display:block;margin-top:8px;font-size:13px}
+    input,select,button{width:100%;padding:6px;margin-top:4px;box-sizing:border-box}
+    .row{display:flex;gap:8px}
+    .row> *{flex:1}
+    pre{background:#fff;padding:8px;border:1px solid #ddd;white-space:pre-wrap}
+    .small{font-size:12px;color:#555}
+  </style>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/STLLoader.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/OBJLoader.js"></script>
+</head>
+<body>
+  <div id="viewer"></div>
+  <div id="panel">
+    <h3>Slicer completo - Stima costi/tempo</h3>
+
+    <label>Carica file STL/OBJ</label>
+    <input id="file" type="file" accept=".stl,.obj" />
+
+    <label>Materiale</label>
+    <select id="material">
+      <option value="PLA">PLA — 1.24 g/cm³ — €25/kg</option>
+      <option value="ABS">ABS — 1.04 g/cm³ — €20/kg</option>
+      <option value="PETG">PETG — 1.27 g/cm³ — €28/kg</option>
+      <option value="NYLON">NYLON — 1.15 g/cm³ — €40/kg</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>Nozzle (mm)</label>
+        <input id="nozzle" type="number" value="0.4" step="0.05" />
+      </div>
+      <div>
+        <label>Layer (mm)</label>
+        <input id="layer" type="number" value="0.2" step="0.01" />
+      </div>
+    </div>
+
+    <label>Perimetri (numero di wall)</label>
+    <input id="perimeters" type="number" value="2" min="0" step="1" />
+
+    <label>Infill (%)</label>
+    <input id="infill" type="number" value="20" min="0" max="100" />
+
+    <label>Supporti</label>
+    <div class="row">
+      <select id="supports">
+        <option value="none">Nessuno</option>
+        <option value="auto">Auto (stima)</option>
+      </select>
+      <input id="supportDensity" type="number" value="20" min="5" max="100" />
+    </div>
+
+    <label>Velocità (mm/s) — Perimetri, Infill, Travel</label>
+    <div class="row">
+      <input id="speedPerim" type="number" value="30" />
+      <input id="speedInfill" type="number" value="60" />
+      <input id="speedTravel" type="number" value="150" />
+    </div>
+
+    <label>Diametro filamento (mm)</label>
+    <input id="filament" type="number" value="1.75" step="0.01" />
+
+    <button id="estimate">Calcola stima completa</button>
+
+    <h4>Risultati</h4>
+    <pre id="results">Carica un modello e premi "Calcola stima completa".</pre>
+    <div class="small">Assunzioni: unità modello in millimetri; stima approssimativa (non sostituisce uno slicer completo).</div>
+  </div>
+
+  <script>
+    // Scene
+    const container = document.getElementById('viewer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 10000);
+    camera.position.set(300,300,300);
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.update();
+    scene.add(new THREE.AmbientLight(0x888888));
+    const light = new THREE.DirectionalLight(0xffffff,1);
+    light.position.set(200,400,200);
+    scene.add(light);
+    window.addEventListener('resize', ()=> {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    let currentMesh = null;
+    function clearMesh(){
+      if(currentMesh){
+        scene.remove(currentMesh);
+        if(currentMesh.geometry) currentMesh.geometry.dispose();
+        if(currentMesh.material) currentMesh.material.dispose();
+        currentMesh = null;
+      }
+    }
+    function animate(){ requestAnimationFrame(animate); renderer.render(scene,camera); }
+    animate();
+
+    const stlLoader = new THREE.STLLoader();
+    const objLoader = new THREE.OBJLoader();
+
+    document.getElementById('file').addEventListener('change', (ev)=>{
+      const f = ev.target.files[0];
+      if(!f) return;
+      const reader = new FileReader();
+      const name = f.name.toLowerCase();
+      reader.addEventListener('load', (e)=>{
+        clearMesh();
+        try{
+          if(name.endsWith('.stl')){
+            const geom = stlLoader.parse(e.target.result);
+            geom.computeVertexNormals();
+            addMeshFromGeometry(geom);
+          } else if(name.endsWith('.obj')){
+            const obj = objLoader.parse(e.target.result);
+            const meshes = [];
+            obj.traverse(c=>{ if(c.isMesh) meshes.push(c); });
+            if(meshes.length===0) throw new Error('Nessuna mesh nell\'OBJ');
+            // merge by using first mesh (quick)
+            addMeshFromGeometry(meshes[0].geometry);
+          } else {
+            alert('Formato non supportato');
+          }
+        }catch(err){
+          alert('Errore caricamento: '+err.message);
+        }
+      });
+      if(name.endsWith('.stl')) reader.readAsArrayBuffer(f);
+      else reader.readAsText(f);
+    });
+
+    function addMeshFromGeometry(geometry){
+      const geom = geometry.isBufferGeometry ? geometry : new THREE.BufferGeometry().fromGeometry(geometry);
+      geom.computeBoundingBox();
+      geom.computeBoundingSphere();
+      const bbox = geom.boundingBox;
+      const size = new THREE.Vector3(); bbox.getSize(size);
+      const maxDim = Math.max(size.x,size.y,size.z);
+      if(maxDim === 0) return alert('Modello vuoto');
+      const material = new THREE.MeshStandardMaterial({color:0xcccccc,metalness:0.1,roughness:0.6,side:THREE.DoubleSide});
+      const mesh = new THREE.Mesh(geom, material);
+      // center
+      mesh.position.set(- (bbox.min.x + bbox.max.x)/2, - (bbox.min.y + bbox.max.y)/2, - (bbox.min.z + bbox.max.z)/2);
+      scene.add(mesh);
+      currentMesh = mesh;
+      // camera fit
+      const dist = maxDim * 2.2;
+      camera.position.set(dist, dist, dist);
+      controls.target.set(0,0,0); controls.update();
+      updateResults('Modello caricato. Premi "Calcola stima completa".');
+    }
+
+    function updateResults(text){ document.getElementById('results').textContent = text; }
+
+    // Geometry helpers
+    function computeVolume_mm3(bufferGeometry){
+      const geom = bufferGeometry.index ? bufferGeometry.toNonIndexed() : bufferGeometry;
+      const pos = geom.attributes.position;
+      let vol = 0;
+      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+      for(let i=0;i<pos.count;i+=3){
+        a.fromBufferAttribute(pos, i);
+        b.fromBufferAttribute(pos, i+1);
+        c.fromBufferAttribute(pos, i+2);
+        vol += a.dot( b.clone().cross(c) ) / 6.0;
+      }
+      return Math.abs(vol); // mm^3
+    }
+
+    function computeSurfaceArea_mm2(bufferGeometry){
+      const geom = bufferGeometry.index ? bufferGeometry.toNonIndexed() : bufferGeometry;
+      const pos = geom.attributes.position;
+      let area = 0;
+      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+      for(let i=0;i<pos.count;i+=3){
+        a.fromBufferAttribute(pos,i);
+        b.fromBufferAttribute(pos,i+1);
+        c.fromBufferAttribute(pos,i+2);
+        area += triangleArea(a,b,c);
+      }
+      return area; // mm^2
+    }
+    function triangleArea(a,b,c){
+      const ab = b.clone().sub(a);
+      const ac = c.clone().sub(a);
+      return 0.5 * ab.clone().cross(ac).length();
+    }
+
+    document.getElementById('estimate').addEventListener('click', ()=>{
+      if(!currentMesh) return alert('Carica prima un modello.');
+      const geom = currentMesh.geometry;
+      const vol_mm3 = computeVolume_mm3(geom);
+      const area_mm2 = computeSurfaceArea_mm2(geom);
+
+      // params
+      const nozzle = parseFloat(document.getElementById('nozzle').value);
+      const layer = parseFloat(document.getElementById('layer').value);
+      const perimeters = Math.max(0, parseInt(document.getElementById('perimeters').value));
+      const infillPerc = Math.max(0, Math.min(100, parseFloat(document.getElementById('infill').value)));
+      const supportMode = document.getElementById('supports').value;
+      const supportDensity = parseFloat(document.getElementById('supportDensity').value) || 20;
+      const speedPerim = parseFloat(document.getElementById('speedPerim').value);
+      const speedInfill = parseFloat(document.getElementById('speedInfill').value);
+      const speedTravel = parseFloat(document.getElementById('speedTravel').value);
+      const filamentD = parseFloat(document.getElementById('filament').value);
+
+      // materials
+      const materials = {
+        'PLA': {rho:1.24, cost:25},
+        'ABS': {rho:1.04, cost:20},
+        'PETG':{rho:1.27, cost:28},
+        'NYLON':{rho:1.15, cost:40}
+      };
+      const mat = materials[document.getElementById('material').value] || materials['PLA'];
+
+      // Estimate volumes:
+      // - Infill volume: model_volume * infill%
+      const infill_vol_mm3 = vol_mm3 * (infillPerc/100.0);
+
+      // - Shell/perimeter volume: approximate from surface area and shell_thickness.
+      // shell_thickness approximated as nozzle * perimeters (mm)
+      const shell_thickness_mm = Math.max(0.0001, nozzle * perimeters);
+      // shell volume ~ surface_area * shell_thickness * shell_effect_factor
+      const shell_effect_factor = 0.6; // not all surface area generates walls fully (approx)
+      const shell_vol_mm3 = area_mm2 * shell_thickness_mm * shell_effect_factor;
+
+      // - Support volume (simple heuristic): if auto -> assume 5-15% of model volume depending on overhangs.
+      let support_vol_mm3 = 0;
+      if(supportMode === 'auto'){
+        // approximate: cylinder of bbox and angle -> use 10% baseline
+        support_vol_mm3 = vol_mm3 * 0.10 * (supportDensity/100.0);
+      }
+
+      // - Top/bottom solid layers: approximate based on area and layer count (assume 3 solid layers top/bottom)
+      const solid_layers = 3;
+      const topbottom_vol_mm3 = area_mm2 * (layer * solid_layers * 2 * 0.9); // factor for overlap
+
+      // total printed volume (clamped)
+      let printed_vol_mm3 = infill_vol_mm3 + shell_vol_mm3 + support_vol_mm3 + topbottom_vol_mm3;
+      // If infill 100% prefer model volume
+      if(infillPerc >= 99) printed_vol_mm3 = vol_mm3 + support_vol_mm3;
+
+      // mass & cost
+      const mass_g = (printed_vol_mm3 / 1000.0) * mat.rho;
+      const mass_kg = mass_g / 1000.0;
+      const cost = mass_kg * mat.cost;
+
+      // filament length
+      const filament_area_mm2 = Math.PI * Math.pow(filamentD/2.0, 2);
+      const filament_length_mm = printed_vol_mm3 / filament_area_mm2;
+
+      // Time estimate by splitting components:
+      // volumetric flow mm3/s = speed(mm/s) * nozzle(mm) * layer(mm)
+      const vf_perim = Math.max(1e-6, speedPerim * nozzle * layer);
+      const vf_infill = Math.max(1e-6, speedInfill * nozzle * layer);
+      // estimate volumes per type
+      const time_perim_s = shell_vol_mm3 / vf_perim;
+      const time_infill_s = infill_vol_mm3 / vf_infill;
+      // travel time: approximate travel from layer count and travel speed
+      const layer_count = Math.max(1, Math.round((geom.boundingBox.max.z - geom.boundingBox.min.z) / layer));
+      // estimate average travel per layer (mm) heuristic
+      const avg_travel_mm_per_layer = Math.max(50, Math.min(500, Math.sqrt(area_mm2))); // heuristic
+      const time_travel_s = (avg_travel_mm_per_layer * layer_count) / Math.max(1e-6, speedTravel);
+      const time_support_s = support_vol_mm3 / Math.max(1e-6, vf_infill * 0.6); // supports printed slower
+      const time_topbottom_s = topbottom_vol_mm3 / vf_perim;
+
+      let total_time_s = time_perim_s + time_infill_s + time_travel_s + time_support_s + time_topbottom_s;
+      // add a fudge factor for pauses, retractions, head lifts (10-20%)
+      total_time_s *= 1.12;
+
+      // round and present
+      const out = [];
+      out.push(`Volume modello (mm³): ${vol_mm3.toFixed(0)}`);
+      out.push(`Area superficie (mm²): ${area_mm2.toFixed(0)}`);
+      out.push('');
+      out.push(`Componenti stampa (stima):`);
+      out.push(`  - Infill (${infillPerc}%): ${infill_vol_mm3.toFixed(0)} mm³`);
+      out.push(`  - Perimetri (n=${perimeters}): ${shell_vol_mm3.toFixed(0)} mm³`);
+      out.push(`  - Top/Bottom (approx ${solid_layers} layer): ${topbottom_vol_mm3.toFixed(0)} mm³`);
+      out.push(`  - Supporti (stima ${supportMode==='auto'?supportDensity+'%':'0%'}): ${support_vol_mm3.toFixed(0)} mm³`);
+      out.push(`Stima volume totale stampato: ${printed_vol_mm3.toFixed(0)} mm³`);
+      out.push('');
+      out.push(`Massa stimata: ${mass_g.toFixed(1)} g`);
+      out.push(`Costo stimato: € ${cost.toFixed(2)}`);
+      out.push(`Lunghezza filamento stimata: ${(filament_length_mm/1000).toFixed(2)} m (${filament_length_mm.toFixed(0)} mm)`);
+      out.push('');
+      out.push(`Tempo stimato (approssimativo):`);
+      out.push(`  - Perimetri: ${formatTime(time_perim_s)}`);
+      out.push(`  - Infill: ${formatTime(time_infill_s)}`);
+      out.push(`  - Top/Bottom: ${formatTime(time_topbottom_s)}`);
+      out.push(`  - Supporti: ${formatTime(time_support_s)}`);
+      out.push(`  - Travel/Layer moves: ${formatTime(time_travel_s)}`);
+      out.push(`  - Totale (con overhead 12%): ${formatTime(total_time_s)}`);
+      out.push('');
+      out.push('Nota: questa è una stima semplificata. Per stime esatte usa uno slicer che calcola toolpath.');
+
+      updateResults(out.join('\n'));
+    });
+
+    function formatTime(s){
+      if(!isFinite(s) || s <= 0) return '0s';
+      const h = Math.floor(s/3600); s -= h*3600;
+      const m = Math.floor(s/60); s -= m*60;
+      const sec = Math.round(s);
+      return `${h}h ${m}m ${sec}s`;
+    }
+  </script>
+</body>
+</html>

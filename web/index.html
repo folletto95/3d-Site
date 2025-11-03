@@ -6,8 +6,7 @@
   <title>Magazzino Filamenti & Stima</title>
   <style>
     :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
     .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
     @media (max-width:1000px){.grid{grid-template-columns:1fr}}
@@ -25,7 +24,9 @@
         linear-gradient(-45deg,#999 25%,transparent 25%),
         linear-gradient(45deg,transparent 75%,#999 75%),
         linear-gradient(-45deg,transparent 75%,#999 75%);
-      background-size:8px 8px; background-position:0 0,0 4px,4px -4px,-4px 0; background-color:#fff;
+      background-size:8px 8px;
+      background-position:0 0,0 4px,4px -4px,-4px 0;
+      background-color:#fff;
     }
     .title{font-weight:700}
     .sub{font-size:12px;color:var(--muted)}
@@ -34,16 +35,8 @@
     input[type="file"],input[type="text"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
     button{cursor:pointer}
     .hint{color:var(--muted);font-size:13px}
-
-    /* Viewer 3D */
-    .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted);position:relative;overflow:hidden}
+    .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
     .viewer.drag{border-color:var(--accent); color:var(--accent)}
-    .canvas-wrap{position:absolute;inset:0}
-    .spinner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-    .spin{width:28px;height:28px;border-radius:50%;border:3px solid #567;border-top-color:#9df;animation:sp 1s linear infinite}
-    @keyframes sp{to{transform:rotate(1turn)}}
-    .badge{position:absolute;left:8px;top:8px;background:#0008;border:1px solid #fff2;padding:4px 8px;border-radius:8px;font-size:12px}
-
     .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
     @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
     .out{margin-top:12px;font-size:14px}
@@ -52,14 +45,7 @@
 </head>
 <body>
   <div class="wrap">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-      <h1 style="margin:0">Magazzino Filamenti & Stima</h1>
-      <div>
-        <button id="openSlicer" title="Apri il Slicer" style="border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:8px 12px;cursor:pointer">
-          Apri Slicer
-        </button>
-      </div>
-    </div>
+    <h1>Magazzino Filamenti & Stima</h1>
     <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
 
     <div class="grid">
@@ -71,12 +57,7 @@
 
       <div class="card">
         <h2>Viewer 3D (STL/3MF/OBJ)</h2>
-        <div id="viewer" class="viewer" aria-live="polite">
-          <div class="badge">Trascina un file oppure usa “Carica / Da URL”</div>
-          <div class="spinner" id="spin" style="display:none"><div class="spin"></div></div>
-          <div id="threeMount" class="canvas-wrap" hidden></div>
-          <div id="viewerFallback">In attesa di un modello…</div>
-        </div>
+        <div id="viewer" class="viewer" aria-live="polite">Trascina qui un file o caricalo dal pulsante sotto.</div>
       </div>
     </div>
 
@@ -92,29 +73,39 @@
       <div class="est">
         <label>Layer
           <select id="layer_h">
-            <option value="0.20">0.20 mm</option><option value="0.16">0.16 mm</option>
-            <option value="0.12">0.12 mm</option><option value="0.28">0.28 mm</option>
+            <option value="0.20">0.20 mm</option>
+            <option value="0.16">0.16 mm</option>
+            <option value="0.12">0.12 mm</option>
+            <option value="0.28">0.28 mm</option>
           </select>
         </label>
         <label>Infill
           <select id="infill">
-            <option value="15">15%</option><option value="5">5%</option>
-            <option value="20">20%</option><option value="40">40%</option>
+            <option value="15">15%</option>
+            <option value="5">5%</option>
+            <option value="20">20%</option>
+            <option value="40">40%</option>
           </select>
         </label>
         <label>Nozzle
           <select id="nozzle">
-            <option value="0.4">0.4 mm</option><option value="0.6">0.6 mm</option><option value="0.2">0.2 mm</option>
+            <option value="0.4">0.4 mm</option>
+            <option value="0.6">0.6 mm</option>
+            <option value="0.2">0.2 mm</option>
           </select>
         </label>
         <label>Print speed
           <select id="print_speed">
-            <option value="60">60 mm/s</option><option value="80">80 mm/s</option><option value="40">40 mm/s</option>
+            <option value="60">60 mm/s</option>
+            <option value="80">80 mm/s</option>
+            <option value="40">40 mm/s</option>
           </select>
         </label>
         <label>Travel speed
           <select id="travel_speed">
-            <option value="150">150 mm/s</option><option value="200">200 mm/s</option><option value="100">100 mm/s</option>
+            <option value="150">150 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="100">100 mm/s</option>
           </select>
         </label>
         <div style="display:flex;align-items:end">
@@ -126,18 +117,17 @@
     </div>
   </div>
 
-  <!-- Script con viewer 3D e le tue modifiche alla palette -->
-  <script type="module">
+  <script>
     // ---------- util colore ----------
     function hexToRgb(hex){
-      const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
-      return m?{r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)}:{r:127,g:127,b:127};
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
+      return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:127,g:127,b:127};
     }
-    const BASIC={
-      "#000000":"Nero","#FFFFFF":"Bianco","#FF0000":"Rosso","#00FF00":"Verde",
-      "#0000FF":"Blu","#FFFF00":"Giallo","#FFA500":"Arancione","#FFC0CB":"Rosa",
-      "#800080":"Viola","#A52A2A":"Marrone","#808080":"Grigio","#00FFFF":"Ciano",
-      "#008000":"Verde scuro","#ADD8E6":"Azzurro","#FFD700":"Oro","#8B4513":"Terra di Siena"
+    const BASIC = {
+      "#000000":"Nero", "#FFFFFF":"Bianco", "#FF0000":"Rosso", "#00FF00":"Verde",
+      "#0000FF":"Blu", "#FFFF00":"Giallo", "#FFA500":"Arancione", "#FFC0CB":"Rosa",
+      "#800080":"Viola", "#A52A2A":"Marrone", "#808080":"Grigio", "#00FFFF":"Ciano",
+      "#008000":"Verde scuro", "#ADD8E6":"Azzurro", "#FFD700":"Oro", "#8B4513":"Terra di Siena"
     };
     function nearestBasicName(hex){
       const {r,g,b}=hexToRgb(hex), entries=Object.entries(BASIC);
@@ -150,44 +140,51 @@
     }
 
     // ---------- stato ----------
-    let selectedKey=null, currentViewerUrl=null;
-    const REFRESH_MS=60000;
+    let selectedKey = null;
+    let currentViewerUrl = null;
+    const REFRESH_MS = 60000; // 60 s
 
     // ---------- palette ----------
     async function loadPalette(){
-      const res=await fetch('/inventory?nocache='+Date.now());
-      const data=await res.json();
-      renderPalette(data.items||[]);
+      const res = await fetch('/inventory?nocache='+Date.now());
+      const data = await res.json();
+      renderPalette(data.items || []);
     }
-    function renderPalette(items){
-      const box=document.getElementById('palette'); box.innerHTML='';
-      items
-        .sort((a,b)=>(a.material||'').localeCompare(b.material||'')||(a.color||'').localeCompare(b.color||''))
-        .forEach(it=>{
-          const hex=(it.color||'#777777').toUpperCase();
-          const price=(it.price_per_kg!=null)?`${it.price_per_kg.toFixed(2)} ${it.currency}/kg`:'n/d';
-          const colorName=it.color_name||nearestBasicName(hex);
 
-          const row=document.createElement('div');
+    function renderPalette(items){
+      const box = document.getElementById('palette');
+      box.innerHTML = '';
+      items
+        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color||'').localeCompare(b.color||'' ) )
+        .forEach(it=>{
+          const hex = (it.color || '#777777').toUpperCase();
+          const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
+          const colorName = it.color_name || nearestBasicName(hex);
+
+          const row = document.createElement('div');
           row.className='pill';
           row.setAttribute('role','option');
-          row.setAttribute('aria-label',`${it.material}, ${colorName}, ${price}`);
-          row.setAttribute('aria-selected',selectedKey===it.key?'true':'false');
-          row.onclick=()=>{selectedKey=it.key;[...box.children].forEach(c=>c.setAttribute('aria-selected','false'));row.setAttribute('aria-selected','true');};
+          row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
+          row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
+          row.onclick = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
 
-          const left=document.createElement('div'); left.className='left';
-          const dot=document.createElement('span'); dot.className='dot'+(it.is_transparent?' transparent':'');
-          if(!it.is_transparent){ dot.style.backgroundColor=hex; }
-          dot.title=colorName; dot.setAttribute('aria-hidden','true');
+          const left = document.createElement('div'); left.className='left';
+          const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
+          if(!it.is_transparent){ dot.style.backgroundColor = hex; }
+          // Show only the human-friendly name in the tooltip (no HEX value)
+          dot.title = colorName;
+          dot.setAttribute('aria-hidden','true');
 
-          const col=document.createElement('div');
-          const t1=document.createElement('div'); t1.className='title'; t1.textContent=it.material||'n/d';
-          const t2=document.createElement('div'); t2.className='sub'; t2.textContent=colorName; // solo nome, niente HEX
+          const col = document.createElement('div');
+          const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
+          const t2 = document.createElement('div'); t2.className='sub';
+          // Display only the color name without its hex code in the palette
+          t2.textContent = colorName;
           col.appendChild(t1); col.appendChild(t2);
 
-          const priceEl=document.createElement('div'); priceEl.className='price'; priceEl.textContent=price;
-
           left.appendChild(dot); left.appendChild(col);
+          const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
+
           row.appendChild(left); row.appendChild(priceEl);
           box.appendChild(row);
         });
@@ -195,175 +192,185 @@
 
     // ---------- upload / fetch ----------
     async function uploadFileOrBlob(file){
-      const fd=new FormData(); fd.append('file',file);
-      const r=await fetch('/upload_model',{method:'POST',body:fd});
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/upload_model', {method:'POST', body: fd});
       if(!r.ok){ alert('Upload fallito'); return; }
-      const j=await r.json(); showViewer(j.viewer_url,j.filename);
+      const j = await r.json();
+      showViewer(j.viewer_url, j.filename);
     }
-    async function uploadFile(){ const f=document.getElementById('file').files[0]; if(!f){alert('Seleziona un file');return;} uploadFileOrBlob(f); }
+
+    async function uploadFile(){
+      const f = document.getElementById('file').files[0];
+      if(!f){ alert('Seleziona un file'); return; }
+      uploadFileOrBlob(f);
+    }
+
     async function fetchFromUrl(){
-      const url=document.getElementById('url').value.trim(); if(!url){alert('Inserisci una URL');return;}
-      const r=await fetch('/fetch_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
-      const j=await r.json(); if(j.viewer_url){showViewer(j.viewer_url,j.filename);} else {alert('Nessun modello trovato');}
+      const url = document.getElementById('url').value.trim();
+      if(!url){ alert('Inserisci una URL'); return; }
+      const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
+      const j = await r.json();
+      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
     }
 
-    // ---------- viewer 3D ----------
-    const viewer=document.getElementById('viewer');
-    const threeMount=document.getElementById('threeMount');
-    const spin=document.getElementById('spin');
-    const fallbackEl=document.getElementById('viewerFallback');
-    let threeCtx=null; // {THREE, OrbitControls, STLLoader, OBJLoader, ThreeMFLoader, renderer, scene, camera, controls, current}
-
-    viewer.addEventListener('dragover',e=>{e.preventDefault(); viewer.classList.add('drag');});
-    viewer.addEventListener('dragleave',()=>viewer.classList.remove('drag'));
-    viewer.addEventListener('drop',e=>{
+    // drag & drop
+    const viewer = document.getElementById('viewer');
+    viewer.addEventListener('dragover', e => { e.preventDefault(); viewer.classList.add('drag'); });
+    viewer.addEventListener('dragleave', () => viewer.classList.remove('drag'));
+    viewer.addEventListener('drop', e => {
       e.preventDefault(); viewer.classList.remove('drag');
-      const f=e.dataTransfer.files && e.dataTransfer.files[0]; if(f){ uploadFileOrBlob(f); }
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ uploadFileOrBlob(f); }
     });
 
-    function showSpinner(on){ spin.style.display=on?'flex':'none'; }
-    function fallbackLink(path, name){
-      threeMount.hidden=true;
-      fallbackEl.innerHTML=`Anteprima non disponibile. Apri il file: <a href="${path}" target="_blank" style="color:var(--accent)">${name||path}</a>`;
-    }
+    /**
+     * Render a 3D model in the viewer area. Supported formats are STL, OBJ and 3MF.
+     * For unsupported extensions the link to the file is shown instead.
+     *
+     * This function dynamically imports Three.js and the required loaders on first
+     * invocation. Subsequent calls reuse the cached modules to avoid
+     * additional network requests.
+     */
+    async function showViewer(path, name){
+      currentViewerUrl = path;
+      const viewer = document.getElementById('viewer');
+      // Remove any previous content and reset drag styling
+      viewer.innerHTML = '';
+      viewer.classList.remove('drag');
 
-    async function ensureThree(){
-      if(threeCtx && threeCtx.THREE) return threeCtx;
-      const base1='https://unpkg.com/three@0.160.0';
-      const base2='https://cdn.jsdelivr.net/npm/three@0.160.0';
-      async function tryLoad(base){
-        const THREE=await import(`${base}/build/three.module.js`);
-        const {OrbitControls}=await import(`${base}/examples/jsm/controls/OrbitControls.js`);
-        const {STLLoader}=await import(`${base}/examples/jsm/loaders/STLLoader.js`);
-        const {OBJLoader}=await import(`${base}/examples/jsm/loaders/OBJLoader.js`);
-        const {ThreeMFLoader}=await import(`${base}/examples/jsm/loaders/3MFLoader.js`);
-        return {THREE,OrbitControls,STLLoader,OBJLoader,ThreeMFLoader};
-      }
-      try{ threeCtx=await tryLoad(base1); } catch(e1){ try{ threeCtx=await tryLoad(base2); } catch(e2){ threeCtx=null; } }
-      return threeCtx;
-    }
 
-    function fitCameraToObject(THREE,camera,object,controls){
-      const box=new THREE.Box3().setFromObject(object);
-      const size=box.getSize(new THREE.Vector3()); const center=box.getCenter(new THREE.Vector3());
-      const maxDim=Math.max(size.x,size.y,size.z);
-      const fov=THREE.MathUtils.degToRad(camera.fov);
-      let camZ=Math.abs(maxDim/2/Math.tan(fov/2)); camZ*=1.35;
-      camera.position.set(center.x+camZ, center.y+camZ*0.5, center.z+camZ);
-      camera.near=maxDim/100; camera.far=maxDim*10; camera.updateProjectionMatrix();
-      controls.target.copy(center); controls.update();
-    }
-
-    function initThree(THREE){
-      const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-      renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
-      renderer.setSize(threeMount.clientWidth, threeMount.clientHeight);
-      threeMount.innerHTML=''; threeMount.appendChild(renderer.domElement);
-
-      const scene=new THREE.Scene();
-      const camera=new THREE.PerspectiveCamera(50, threeMount.clientWidth/threeMount.clientHeight,0.01,1000);
-      const controls=new threeCtx.OrbitControls(camera, renderer.domElement);
-      controls.enableDamping=true; controls.dampingFactor=0.05;
-
-      const amb=new THREE.AmbientLight(0xffffff,0.8); scene.add(amb);
-      const dir=new THREE.DirectionalLight(0xffffff,0.8); dir.position.set(1,1,1); scene.add(dir);
-      const grid=new THREE.GridHelper(200,20,0x334455,0x223344); grid.position.y=-0.001; scene.add(grid);
-
-      function animate(){ requestAnimationFrame(animate); controls.update(); renderer.render(scene,camera); }
-      animate();
-
-      window.addEventListener('resize', ()=>{
-        const w=threeMount.clientWidth, h=threeMount.clientHeight;
-        camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h);
-      });
-
-      return {renderer,scene,camera,controls,current:null};
-    }
-
-    async function loadModel(path){
-      showSpinner(true);
-      const ctx=await ensureThree();
-      if(!ctx){ showSpinner(false); return fallbackLink(path,(path.split('/').pop())); }
-
-      if(!threeCtx.renderer){ Object.assign(threeCtx, initThree(threeCtx.THREE)); }
-      const {THREE,scene,camera,controls}=threeCtx;
-
-      // pulizia precedente
-      if(threeCtx.current){
-        scene.remove(threeCtx.current);
-        threeCtx.current.traverse?.(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material) (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose&&m.dispose()); });
-        threeCtx.current=null;
-      }
-
-      threeMount.hidden=false; fallbackEl.innerHTML='';
-      const ext=(path.split('?')[0].split('#')[0].split('.').pop()||'').toLowerCase();
-
-      try{
-        let obj=null;
-        if(ext==='stl'){
-          const loader=new threeCtx.STLLoader(); const geo=await loader.loadAsync(path);
-          const mat=new THREE.MeshStandardMaterial({color:0xaaaaaa,metalness:0.1,roughness:0.6});
-          obj=new THREE.Mesh(geo,mat);
-        } else if(ext==='obj'){
-          const loader=new threeCtx.OBJLoader(); obj=await loader.loadAsync(path);
-        } else if(ext==='3mf'){
-          const loader=new threeCtx.ThreeMFLoader(); obj=await loader.loadAsync(path);
-        } else {
-          showSpinner(false); return fallbackLink(path);
+      // Only load the modules once; store them on window.__threeModules
+      if(!window.__threeModules){
+        window.__threeModules = {};
+        try {
+          window.__threeModules.THREE = await import('https://unpkg.com/three@0.147.0/build/three.module.js?module');
+          window.__threeModules.OrbitControls = (await import('https://unpkg.com/three@0.147.0/examples/jsm/controls/OrbitControls.js?module')).OrbitControls;
+          window.__threeModules.STLLoader = (await import('https://unpkg.com/three@0.147.0/examples/jsm/loaders/STLLoader.js?module')).STLLoader;
+          window.__threeModules.OBJLoader = (await import('https://unpkg.com/three@0.147.0/examples/jsm/loaders/OBJLoader.js?module')).OBJLoader;
+          window.__threeModules.ThreeMFLoader = (await import('https://unpkg.com/three@0.147.0/examples/jsm/loaders/3MFLoader.js?module')).ThreeMFLoader;
+        } catch(err){
+          console.error('Errore nel caricamento delle librerie Three.js:', err);
         }
-        obj.rotation.x=-Math.PI/2; // z-up -> y-up
-        threeCtx.current=obj; threeCtx.scene.add(obj);
-        fitCameraToObject(THREE,camera,obj,controls);
-        showSpinner(false);
-      }catch(e){
-        console.error('Errore caricamento 3D',e);
-        showSpinner(false); fallbackLink(path,(path.split('/').pop()));
       }
-    }
 
-    function showViewer(path,name){
-      currentViewerUrl=path;
-      loadModel(path); // render 3D
-      document.getElementById('out').innerHTML='';
+      const { THREE, OrbitControls, STLLoader, OBJLoader, ThreeMFLoader } = window.__threeModules;
+      if(!THREE){
+        // If modules failed to load, fall back to showing the link
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
+
+      // Determine which loader to use based on file extension
+      const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
+      let loader;
+      if(extMatch === 'stl') loader = new STLLoader();
+      else if(extMatch === 'obj') loader = new OBJLoader();
+      else if(extMatch === '3mf') loader = new ThreeMFLoader();
+      else {
+        // Unsupported extension: show a link instead of 3D preview
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
+
+      // Create renderer, scene, camera and controls
+      const width = viewer.clientWidth;
+      const height = viewer.clientHeight;
+      const canvas = document.createElement('div');
+      canvas.style.width = '100%';
+      canvas.style.height = height + 'px';
+      viewer.appendChild(canvas);
+
+      const scene = new THREE.Scene();
+      // Use the page's background variable for the scene background
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
+      scene.background = new THREE.Color(bg);
+      const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(width, height);
+      canvas.appendChild(renderer.domElement);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
+
+      // Lighting
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambient);
+      const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+      directional.position.set(3, 10, 5);
+      scene.add(directional);
+
+      // Load the model
+      loader.load(path, (result) => {
+        let object;
+        // For STL, result is a geometry; wrap it in a Mesh
+        if(extMatch === 'stl'){
+          const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+          object = new THREE.Mesh(result, material);
+        } else {
+          object = result;
+        }
+        scene.add(object);
+        // Center the object and adjust camera
+        const box = new THREE.Box3().setFromObject(object);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        // Compute max dimension and set camera distance accordingly
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = camera.fov * (Math.PI / 180);
+        let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+        camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
+        camera.near = maxDim / 100;
+        camera.far = maxDim * 100;
+        camera.updateProjectionMatrix();
+        controls.target.copy(center);
+        controls.update();
+        // Animation loop
+        (function animate(){
+          requestAnimationFrame(animate);
+          controls.update();
+          renderer.render(scene, camera);
+        })();
+      }, undefined, (error) => {
+        console.error('Errore nel caricamento del modello 3D:', error);
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+      });
+      // Clear any previous output from the stima
+      document.getElementById('out').innerHTML = '';
     }
 
     async function estimate(){
       if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
       if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
-      const payload={
-        viewer_url:currentViewerUrl,
-        inventory_key:selectedKey,
-        settings:{
-          layer_h:parseFloat(document.getElementById('layer_h').value),
-          infill:parseFloat(document.getElementById('infill').value),
-          nozzle:parseFloat(document.getElementById('nozzle').value),
-          print_speed:parseFloat(document.getElementById('print_speed').value),
-          travel_speed:parseFloat(document.getElementById('travel_speed').value)
+      const payload = {
+        viewer_url: currentViewerUrl,
+        inventory_key: selectedKey,
+        settings: {
+          layer_h: parseFloat(document.getElementById('layer_h').value),
+          infill: parseFloat(document.getElementById('infill').value),
+          nozzle: parseFloat(document.getElementById('nozzle').value),
+          print_speed: parseFloat(document.getElementById('print_speed').value),
+          travel_speed: parseFloat(document.getElementById('travel_speed').value)
         }
       };
-      const r=await fetch('/slice/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-      const j=await r.json(); if(!r.ok){ alert(j.detail||'Errore stima'); return; }
-      const tmin=Math.round(j.time_s/60);
-      document.getElementById('out').innerHTML=
-        `Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
-         Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
-         Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>`;
+      const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const j = await r.json();
+      if(!r.ok){ alert(j.detail || 'Errore stima'); return; }
+      const tmin = Math.round(j.time_s/60);
+      document.getElementById('out').innerHTML = `
+        Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
+        Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
+        Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
+      `;
     }
 
     // ---------- init ----------
-    document.getElementById('btnUpload').onclick=uploadFile;
-    document.getElementById('btnFetch').onclick=fetchFromUrl;
-    document.getElementById('btnEstimate').onclick=estimate;
-    loadPalette(); setInterval(loadPalette, REFRESH_MS);
-
-    // Apri lo slicer nello stesso tab
-    const openSlicerBtn = document.getElementById('openSlicer');
-    if(openSlicerBtn){
-      openSlicerBtn.addEventListener('click', ()=> {
-        // apri /slicer.html nello stesso tab
-        window.location.href = '/slicer.html';
-      });
-    }
+    document.getElementById('btnUpload').onclick = uploadFile;
+    document.getElementById('btnFetch').onclick  = fetchFromUrl;
+    document.getElementById('btnEstimate').onclick  = estimate;
+    loadPalette();
+    setInterval(loadPalette, REFRESH_MS);
   </script>
 </body>
 </html>

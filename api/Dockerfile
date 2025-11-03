@@ -18,13 +18,10 @@ COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 3) Codice dell'app (main.py, cura_defs con i json Bambu, ecc.)
-COPY . .
+COPY api/ .
 
 # 4) Aggiungi le definizioni base di Cura (fdmprinter / fdmextruder)
 RUN mkdir -p /api/cura_defs && \
-    git clone --depth 1 https://github.com/Ultimaker/Cura.git /tmp/cura_src && \
-    cp /tmp/cura_src/resources/definitions/fdmprinter.def.json /api/cura_defs/ && \
-    cp /tmp/cura_src/resources/extruders/fdmextruder.def.json /api/cura_defs/ && \
     rm -rf /tmp/cura_src
 
 EXPOSE 8080

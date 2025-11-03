@@ -1,2 +1,9 @@
-__pycache__/
-uploads/
+.git
+__pycache__
+*.py[cod]
+*.log
+node_modules
+.venv
+venv
+dist
+build

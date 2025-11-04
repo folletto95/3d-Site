@@ -185,12 +185,29 @@
        attach themselves to the global `THREE` object rather than
        exporting ES modules, so they work without dynamic import.
        We also load fflate and the 3MF loader for 3MF files. -->
-  <script src="https://unpkg.com/fflate@0.7.4/umd/index.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/STLLoader.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/OBJLoader.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/3MFLoader.js"></script>
+  <!-- Fflate: locale con fallback a unpkg -->
+  <script src="web/js/libs/fflate.min.js"
+        onerror="this.onerror=null;this.src='https://unpkg.com/fflate@0.7.4/umd/index.js'"></script>
+
+  <!-- Three.js core -->
+  <script src="web/js/libs/three.min.js"
+        onerror="this.onerror=null;this.src='https://unpkg.com/three@0.160.0/build/three.min.js'"></script>
+
+  <!-- Controlli orbitali -->
+  <script src="web/js/libs/OrbitControls.js"
+        onerror="this.onerror=null;this.src='https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js'"></script>
+
+  <!-- Loader STL -->
+  <script src="web/js/libs/STLLoader.js"
+        onerror="this.onerror=null;this.src='https://unpkg.com/three@0.160.0/examples/js/loaders/STLLoader.js'"></script>
+
+  <!-- Loader OBJ -->
+  <script src="web/js/libs/OBJLoader.js"
+        onerror="this.onerror=null;this.src='https://unpkg.com/three@0.160.0/examples/js/loaders/OBJLoader.js'"></script>
+
+<!-- Loader 3MF -->
+<script src="web/js/libs/3MFLoader.js"
+        onerror="this.onerror=null;this.src='https://unpkg.com/three@0.160.0/examples/js/loaders/3MFLoader.js'"></script>
 
 
   <script>

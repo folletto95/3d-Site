@@ -380,6 +380,80 @@ def _grams_from_length_mm(length_mm: float, diameter_mm: float, density_g_cm3: f
 def _grams_from_volume_mm3(vol_mm3: float, density_g_cm3: float):
     return (vol_mm3 / 1000.0) * density_g_cm3
 
+def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel_speed: float) -> float:
+    """
+    Approximate print time by summing XYZ movement distances in the G‑code.  This
+    fallback estimator is used when CuraEngine either omits the `;TIME:` comment
+    entirely or returns an obviously incorrect constant value.  It parses
+    linear moves (G0 and G1), accumulates distances for extrusion moves and
+    travel moves separately, then divides by the user‑supplied print and travel
+    speeds.  A modest fudge factor is applied to compensate for acceleration
+    and other overheads.  If no valid distances are found, the estimator
+    returns 0.
+
+    :param gcode_path: Path to the generated G‑code file.
+    :param print_speed: Printing speed in mm/s from the preset.
+    :param travel_speed: Travel speed in mm/s from the preset.
+    :return: Estimated print time in seconds (float).
+    """
+    try:
+        total_print_dist = 0.0
+        total_travel_dist = 0.0
+        last_pos = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+        last_e = None
+        with open(gcode_path, "r", encoding="utf-8", errors="ignore") as f:
+            for raw in f:
+                if not raw:
+                    continue
+                # Skip comment lines
+                if raw.lstrip().startswith(";"):
+                    continue
+                line = raw.lstrip()
+                # Only handle G0/G1 moves
+                if not (line.startswith("G0") or line.startswith("G1")):
+                    continue
+                # Extract coordinates and E values
+                # Example: G1 X23.4 Y12.3 E0.001
+                coords = re.findall(r"([XYZE])([-+]?\d*\.?\d+)", line, re.IGNORECASE)
+                if not coords:
+                    continue
+                new_pos = dict(last_pos)
+                extruding = False
+                for axis, val in coords:
+                    axis = axis.upper()
+                    try:
+                        num = float(val)
+                    except ValueError:
+                        continue
+                    if axis in ("X", "Y", "Z"):
+                        new_pos[axis] = num
+                    elif axis == "E":
+                        # Detect positive extrusion relative to the previous E value
+                        if last_e is not None and num > last_e:
+                            extruding = True
+                        last_e = num
+                # Compute Euclidean distance in XYZ space
+                dx = new_pos["X"] - last_pos["X"]
+                dy = new_pos["Y"] - last_pos["Y"]
+                dz = new_pos["Z"] - last_pos["Z"]
+                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                if dist > 0:
+                    if extruding:
+                        total_print_dist += dist
+                    else:
+                        total_travel_dist += dist
+                last_pos = new_pos
+        if total_print_dist == 0 and total_travel_dist == 0:
+            return 0.0
+        ps = max(1e-3, float(print_speed))
+        ts = max(1e-3, float(travel_speed))
+        time_print = total_print_dist / ps
+        time_travel = total_travel_dist / ts
+        # Add 20% overhead to approximate acceleration, deceleration and other pauses
+        return (time_print + time_travel) * 1.2
+    except Exception:
+        return 0.0
+
 def _parse_cura_filament_usage(text: str, diameter_mm: float, density_g_cm3: float):
     """
     Ritorna (filament_g, filament_mm).
@@ -633,7 +707,15 @@ def slice_estimate(payload: dict = Body(...)):
         machine=machine
     )
 
-    time_s = r["time_s"] or 0
+    # Compute time from CuraEngine or fall back to our estimator.  If CuraEngine
+    # provided a valid TIME comment (>0), use it; otherwise approximate print
+    # time by summing XYZ movements in the generated G‑code.  This yields
+    # variable times across models instead of a constant placeholder.
+    time_s = r["time_s"] if r.get("time_s") else None
+    if not time_s:
+        gcode_path = UPLOAD_ROOT / r["gcode_rel"]
+        time_est = _estimate_print_time_from_gcode(gcode_path, print_speed, travel_speed)
+        time_s = int(time_est) if time_est > 0 else 0
 
     # Densità materiale
     density = _density_for(mat)

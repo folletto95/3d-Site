@@ -43,7 +43,8 @@
     @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
     /* Increase the visibility of the estimate output by enlarging the font and adding spacing */
     .out{margin-top:16px;font-size:16px;line-height:1.4}
-    .out b{color:#fff;font-size:18px}
+    .out{margin-top:20px;font-size:18px;line-height:1.5;background:#0b1527;padding:12px;border-radius:10px;color:var(--text)}
+    .out b{color:var(--accent);font-size:20px}
 
     /* Hide advanced printing parameters when presets are used. The values still exist in the DOM
        so that they can be updated programmatically and sent to the server, but they are not
@@ -61,6 +62,8 @@
     <div class="grid">
       <div class="card">
         <h2>Palette (seleziona materiale)</h2>
+        <!-- Filtro per la palette: permette di cercare per materiale o colore -->
+        <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%; box-sizing:border-box" oninput="filterPalette()" />
         <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
         <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
       </div>
@@ -134,12 +137,16 @@
              values manually after choosing a preset. -->
         <label>Preset
           <select id="preset">
-            <option value="">-- Personalizzato --</option>
+            <!-- Il primo preset selezionato è lo standard: gli utenti vedranno una stima subito usando questo profilo -->
+            <option value="x1c_standard_020" selected>Standard</option>
             <optgroup label="Bambu X1C">
-              <option value="x1c_standard_020">X1C 0.20 Standard</option>
-              <option value="x1c_quality_016">X1C 0.16 Quality</option>
-              <option value="x1c_fine_012">X1C 0.12 Fine</option>
-              <option value="x1c_draft_028">X1C 0.28 Draft</option>
+              <option value="x1c_standard_020">0.20 Standard</option>
+              <option value="x1c_quality_016">0.16 Quality</option>
+              <option value="x1c_fine_012">0.12 Fine</option>
+              <option value="x1c_draft_028">0.28 Draft</option>
+              <option value="x1c_strength_020">0.20 Strength</option>
+              <option value="x1c_lightning_020">0.20 Lightning</option>
+              <option value="x1c_ultrafine_008">0.08 Ultra Fine</option>
             </optgroup>
           </select>
         </label>
@@ -149,6 +156,25 @@
       </div>
 
       <div id="out" class="out"></div>
+    </div>
+  </div>
+  <!-- Pulsante per aprire la guida/tutorial.  Posizioniamo l'icona in alto a destra -->
+  <button id="btnWizard" title="Apri guida" style="position:fixed;top:16px;right:16px;background:var(--card);border:1px solid var(--ring);color:var(--accent);padding:8px 12px;border-radius:12px;font-size:14px;z-index:1000;cursor:pointer">Guida</button>
+
+  <!-- Overlay del wizard/tutorial.  Inizialmente nascosto, copre l'intera pagina con un
+       fondo semitrasparente e una scatola di istruzioni. -->
+  <div id="wizard" class="wizard-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:999;">
+    <div class="wizard-box" style="max-width:600px;margin:10% auto;background:var(--card);color:var(--text);padding:24px;border-radius:16px;box-shadow:0 0 12px rgba(0,0,0,0.5);">
+      <h2 style="margin-top:0">Benvenuto!</h2>
+      <p>Questa guida ti accompagnerà nei passi necessari per ottenere una stima:</p>
+      <ol style="line-height:1.6">
+        <li><b>Scegli un materiale:</b> usa il filtro per cercare per nome o colore e seleziona una riga dalla palette a sinistra.</li>
+        <li><b>Carica il modello:</b> trascina un file STL/3MF/OBJ nella casella del viewer o clicca sul campo per selezionarlo.</li>
+        <li><b>Scegli un preset:</b> il menu a tendina propone profili per la Bambu X1C; la voce "Standard" è la più comune.</li>
+        <li><b>Calcola la stima:</b> premi <em>Stima</em> per generare il G‑code, stimare tempo e costi e scaricare il file.</li>
+        <li><b>Visualizza i risultati:</b> nella sezione "Tempo, Filamento, Costo" appariranno le stime dettagliate.</li>
+      </ol>
+      <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
     </div>
   </div>
 
@@ -195,18 +221,43 @@ let inventoryItems = [];
       renderPalette(data.items || []);
     }
 
+    // Filter the palette based on the text typed into the paletteFilter input.  When the
+    // filter is empty the entire inventory is shown; otherwise only items whose
+    // material or colour name matches the search term (case‑insensitive) are rendered.
+    function filterPalette(){
+      const term = (document.getElementById('paletteFilter').value || '').trim().toLowerCase();
+      if(!term){
+        renderPalette(inventoryItems);
+        return;
+      }
+      const filtered = inventoryItems.filter(it => {
+        const mat = (it.material || '').toLowerCase();
+        // Determine a colour name for matching; fall back to nearest basic if necessary
+        const colorName = (it.color_name || nearestBasicName(it.color || '#777777') || '').toLowerCase();
+        return mat.includes(term) || colorName.includes(term);
+      });
+      renderPalette(filtered);
+    }
+
     // ---------- preset handling ----------
     // Predefined printing presets. Each preset defines the machine to use and
     // suggested values for layer height (mm), infill (%), nozzle (mm),
     // print speed (mm/s) and travel speed (mm/s). Users can further tweak
     // individual settings after selecting a preset.
     const PRESETS = {
-      "": { machine: "generic" },
-      // Bambu Lab X1C presets approximated from typical manufacturer defaults
+      // Generic fallback preset.  If not specified the machine defaults to generic FDM.
+      "": { machine: "generic", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 60, travel_speed: 150 },
+      // Bambu Lab X1C presets approximated from typical manufacturer defaults.  These
+      // values are inspired by the X1C slicing profiles (Standard, Quality, Fine,
+      // Draft, Strength, Lightning, Ultra Fine) and may be adjusted for your
+      // specific materials.  All speeds are in mm/s.
       "x1c_standard_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
       "x1c_quality_016": { machine: "bambu_x1c", layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
       "x1c_fine_012":    { machine: "bambu_x1c", layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
-      "x1c_draft_028":   { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 }
+      "x1c_draft_028":   { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 },
+      "x1c_strength_020":{ machine: "bambu_x1c", layer_h: 0.20, infill: 50, nozzle: 0.4, print_speed: 180, travel_speed: 500 },
+      "x1c_lightning_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 10, nozzle: 0.4, print_speed: 300, travel_speed: 500 },
+      "x1c_ultrafine_008": { machine: "bambu_x1c", layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 }
     };
 
     function applyPreset(key){
@@ -531,9 +582,27 @@ let inventoryItems = [];
     const presetSel = document.getElementById('preset');
     if(presetSel){
       presetSel.onchange = () => applyPreset(presetSel.value);
+      // Set default preset to Standard on initial load and apply its settings
+      // (only if a preset option exists).  This ensures the user sees a sensible
+      // default without having to select it.
+      if (!selectedMachine || selectedMachine === 'generic') {
+        presetSel.value = 'x1c_standard_020';
+        applyPreset('x1c_standard_020');
+      }
     }
     loadPalette();
     setInterval(loadPalette, REFRESH_MS);
+
+    // Wizard events: show and hide
+    const wizardBtn = document.getElementById('btnWizard');
+    const wizardOverlay = document.getElementById('wizard');
+    const wizardClose = document.getElementById('wizardClose');
+    if(wizardBtn && wizardOverlay){
+      wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; };
+    }
+    if(wizardClose){
+      wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; };
+    }
   </script>
 </body>
 </html>

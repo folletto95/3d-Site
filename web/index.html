@@ -32,15 +32,15 @@
     .sub{font-size:12px;color:var(--muted)}
     .price{font-weight:800}
     .row{display:flex;gap:12px;align-items:center}
-    input[type="file"],input[type="text"],input[type="number"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
+    input[type="file"],input[type="text"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
     button{cursor:pointer}
-    .process-grid input,.process-grid select,#finishSelect{width:100%}
     .hint{color:var(--muted);font-size:13px}
     .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
     .viewer.drag{border-color:var(--accent); color:var(--accent)}
+    .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
+    @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
     .out{margin-top:12px;font-size:14px}
     .out b{color:#fff}
-    @media (max-width:640px){.row{flex-direction:column;align-items:stretch}}
   </style>
 </head>
 <body>
@@ -61,73 +61,6 @@
       </div>
     </div>
 
-    <section class="card" style="margin-top:18px">
-      <h3>Finitura</h3>
-      <select id="finishSelect"></select>
-
-      <div class="grid process-grid" style="margin-top:12px">
-        <div>
-          <label>Altezza strato (mm)</label>
-          <input id="layer_height_mm" type="number" step="0.01" min="0.05" max="0.40">
-        </div>
-        <div id="perimeters_wrapper">
-          <label>Pareti</label>
-          <input id="perimeters" type="number" min="1" max="10">
-        </div>
-        <div id="top_bottom_layers">
-          <label>Top layers</label>
-          <input id="top_solid_layers" type="number" min="0" max="20">
-          <label>Bottom layers</label>
-          <input id="bottom_solid_layers" type="number" min="0" max="20">
-        </div>
-        <div id="infill">
-          <label>Infill %</label>
-          <input id="infill_density_percent" type="number" min="0" max="100">
-          <label>Pattern</label>
-          <select id="infill_pattern">
-            <option value="gyroid">Gyroid</option>
-            <option value="grid">Grid</option>
-            <option value="lines">Lines</option>
-            <option value="cubic">Cubic</option>
-            <option value="none">None</option>
-          </select>
-          <label>Top/Bottom pattern</label>
-          <select id="top_bottom_pattern">
-            <option value="monotonic">Monotonic</option>
-            <option value="rectilinear">Rectilinear</option>
-            <option value="concentric">Concentric</option>
-          </select>
-        </div>
-        <div>
-          <label>Layer infill sparso (mm)</label>
-          <input id="sparse_infill_layer_height_mm" type="number" step="0.01" min="0.05" max="1">
-        </div>
-        <div>
-          <label>Seam</label>
-          <select id="seam_position">
-            <option value="back">Posteriore</option>
-            <option value="aligned">Allineata</option>
-            <option value="random">Casuale</option>
-          </select>
-        </div>
-        <div>
-          <label>Ironing</label>
-          <select id="ironing">
-            <option value="off">Spento</option>
-            <option value="topmost">Solo top più alto</option>
-            <option value="all">Tutte le superfici top</option>
-          </select>
-        </div>
-        <div>
-          <label>Fuzzy skin</label>
-          <select id="fuzzy_skin">
-            <option value="off">No</option>
-            <option value="on">Sì</option>
-          </select>
-        </div>
-      </div>
-    </section>
-
     <div class="card" style="margin-top:18px">
       <h2>File & Stima</h2>
       <div class="row" style="flex-wrap:wrap">
@@ -137,17 +70,54 @@
         <button id="btnFetch">Da URL</button>
       </div>
 
-      <div class="row" style="margin-top:18px;justify-content:flex-end">
-        <button id="btnEstimate">Calcola stima</button>
+      <div class="est">
+        <label>Layer
+          <select id="layer_h">
+            <option value="0.20">0.20 mm</option>
+            <option value="0.16">0.16 mm</option>
+            <option value="0.12">0.12 mm</option>
+            <option value="0.28">0.28 mm</option>
+          </select>
+        </label>
+        <label>Infill
+          <select id="infill">
+            <option value="15">15%</option>
+            <option value="5">5%</option>
+            <option value="20">20%</option>
+            <option value="40">40%</option>
+          </select>
+        </label>
+        <label>Nozzle
+          <select id="nozzle">
+            <option value="0.4">0.4 mm</option>
+            <option value="0.6">0.6 mm</option>
+            <option value="0.2">0.2 mm</option>
+          </select>
+        </label>
+        <label>Print speed
+          <select id="print_speed">
+            <option value="60">60 mm/s</option>
+            <option value="80">80 mm/s</option>
+            <option value="40">40 mm/s</option>
+          </select>
+        </label>
+        <label>Travel speed
+          <select id="travel_speed">
+            <option value="150">150 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="100">100 mm/s</option>
+          </select>
+        </label>
+        <div style="display:flex;align-items:end">
+          <button id="btnEstimate">Stima</button>
+        </div>
       </div>
 
       <div id="out" class="out"></div>
     </div>
   </div>
 
-  <script type="module">
-    import { PRINTING_PROFILES } from "./js/printingProfiles.js";
-
+  <script>
     // ---------- util colore ----------
     function hexToRgb(hex){
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
@@ -170,186 +140,29 @@
     }
 
     // ---------- stato ----------
-    let selectedKey = null;
-    let selectedSpool = null;
-    let currentViewerUrl = null;
-    let currentModelName = null;
-    let inventoryItems = [];
+let selectedKey = null;
+let currentViewerUrl = null;
+// Hold the most recent inventory items fetched from the server.
+// Each element includes keys such as `key`, `color`, `material`, `diameter_mm`, `price_per_kg` and `is_transparent`.
+// This cache is used later to apply the selected filament colour to the 3D model
+// and to lookup the current selection for estimating costs.
+let inventoryItems = [];
     const REFRESH_MS = 60000; // 60 s
-
-    const finishSel = document.getElementById("finishSelect");
-    const fields = [
-      "layer_height_mm","perimeters","top_solid_layers","bottom_solid_layers",
-      "infill_density_percent","infill_pattern","top_bottom_pattern",
-      "sparse_infill_layer_height_mm","spiral_vase","ironing","fuzzy_skin","seam_position"
-    ];
-
-    Object.entries(PRINTING_PROFILES).forEach(([id, profile], index)=>{
-      const option = document.createElement("option");
-      option.value = id;
-      option.textContent = profile.label;
-      finishSel.appendChild(option);
-      if(index === 0){ finishSel.value = id; }
-    });
-    finishSel.addEventListener("change", () => applyFinish(finishSel.value));
-    document.getElementById('infill_pattern').addEventListener('change', (event) => {
-      if(event.target.value !== 'none'){
-        lockUI(false);
-      } else {
-        const locks = PRINTING_PROFILES[finishSel.value]?.uiLocks || [];
-        locks.forEach(lock => lockUI(lock, true));
-      }
-    });
-    applyFinish(finishSel.value || Object.keys(PRINTING_PROFILES)[0]);
-
-    function applyFinish(id){
-      const prof = PRINTING_PROFILES[id];
-      const set = prof?.set || {};
-      fields.forEach(key => {
-        const el = document.getElementById(key);
-        if(!el || set[key] === undefined) return;
-        if(typeof set[key] === "boolean"){
-          el.value = set[key] ? "on" : "off";
-        } else {
-          el.value = set[key];
-        }
-      });
-      lockUI(false);
-      (prof?.uiLocks || []).forEach(lock => lockUI(lock, true));
-    }
-
-    function lockUI(section = false, lock = false){
-      const byId = id => document.getElementById(id);
-      const sections = {
-        "infill": byId("infill"),
-        "perimeters": byId("perimeters_wrapper"),
-        "top_bottom_layers": byId("top_bottom_layers")
-      };
-      if(section === false){
-        Object.values(sections).forEach(div => {
-          if(!div) return;
-          div.querySelectorAll("input,select").forEach(e=>{ e.disabled = false; });
-          div.style.opacity = 1;
-        });
-        const per = byId("perimeters");
-        if(per){ per.disabled = false; }
-        return;
-      }
-      const target = sections[section];
-      if(target){
-        target.querySelectorAll("input,select").forEach(e=>{ e.disabled = lock; });
-        target.style.opacity = lock ? 0.5 : 1;
-      }
-      if(section === "perimeters"){
-        const per = byId("perimeters");
-        if(per){ per.disabled = lock; }
-      }
-    }
-
-    function setFieldValue(id, value){
-      const el = document.getElementById(id);
-      if(el){ el.value = value; }
-    }
-
-    window.getProcessConfig = () => {
-      const q = id => document.getElementById(id)?.value;
-      return {
-        layer_height_mm: parseFloat(q("layer_height_mm")),
-        perimeters: parseInt(q("perimeters"), 10),
-        top_solid_layers: parseInt(q("top_solid_layers"), 10),
-        bottom_solid_layers: parseInt(q("bottom_solid_layers"), 10),
-        infill_density_percent: parseInt(q("infill_density_percent"), 10),
-        infill_pattern: q("infill_pattern"),
-        top_bottom_pattern: q("top_bottom_pattern"),
-        sparse_infill_layer_height_mm: parseFloat(q("sparse_infill_layer_height_mm")||"0"),
-        spiral_vase: q("infill_pattern") === "none",
-        ironing: q("ironing"),
-        fuzzy_skin: q("fuzzy_skin"),
-        seam_position: q("seam_position")
-      };
-    };
-
-    function normalizeProcess(proc){
-      const normalized = {...proc};
-      if(Number.isNaN(normalized.layer_height_mm)) normalized.layer_height_mm = 0.2;
-      if(Number.isNaN(normalized.perimeters)) normalized.perimeters = 2;
-      if(Number.isNaN(normalized.top_solid_layers)) normalized.top_solid_layers = 5;
-      if(Number.isNaN(normalized.bottom_solid_layers)) normalized.bottom_solid_layers = 5;
-      if(Number.isNaN(normalized.infill_density_percent)) normalized.infill_density_percent = 15;
-      if(Number.isNaN(normalized.sparse_infill_layer_height_mm) || normalized.sparse_infill_layer_height_mm <= 0){
-        normalized.sparse_infill_layer_height_mm = normalized.layer_height_mm * 2;
-      }
-      if(normalized.perimeters < 1){
-        normalized.perimeters = 1;
-        setFieldValue("perimeters", 1);
-      }
-      if(normalized.top_solid_layers < 0){
-        normalized.top_solid_layers = 0;
-        setFieldValue("top_solid_layers", 0);
-      }
-      if(normalized.bottom_solid_layers < 0){
-        normalized.bottom_solid_layers = 0;
-        setFieldValue("bottom_solid_layers", 0);
-      }
-      if(normalized.infill_density_percent < 0){
-        normalized.infill_density_percent = 0;
-        setFieldValue("infill_density_percent", 0);
-      }
-      if(normalized.infill_density_percent > 100){
-        normalized.infill_density_percent = 100;
-        setFieldValue("infill_density_percent", 100);
-      }
-      
-      if(normalized.spiral_vase){
-        normalized.perimeters = 1;
-        normalized.top_solid_layers = 0;
-        normalized.infill_density_percent = 0;
-        setFieldValue("perimeters", 1);
-        setFieldValue("top_solid_layers", 0);
-        setFieldValue("infill_density_percent", 0);
-        lockUI("infill", true);
-        lockUI("top_bottom_layers", true);
-        lockUI("perimeters", true);
-      }
-
-      if(normalized.layer_height_mm < 0.08 || normalized.layer_height_mm > 0.28){
-        alert("Con ugello da 0.4 mm mantieni l'altezza strato tra 0.08 e 0.28 mm.");
-        return null;
-      }
-
-      if(normalized.infill_density_percent === 0 && normalized.perimeters < 3 && !normalized.spiral_vase){
-        alert("Con infill al 0% usa almeno 3 pareti per dare rigidità alle superfici.");
-        return null;
-      }
-
-      return normalized;
-    }
-
-    function warnForMaterial(processCfg){
-      if(!selectedSpool) return;
-      const mat = (selectedSpool.material || "").toUpperCase();
-      const needsHighTemp = ["PA", "PC", "ABS", "ASA"].some(tag => mat.includes(tag));
-      if(needsHighTemp){
-        alert("Materiale tecnico: usa piano High-Temp/Engineering e adesione aggressiva.");
-      }
-      if(mat.includes("TPU") && (processCfg.spiral_vase || processCfg.perimeters <= 1)){
-        alert("TPU: evita modalità vaso con pareti troppo sottili per mantenere stabilità.");
-      }
-    }
 
     // ---------- palette ----------
     async function loadPalette(){
       const res = await fetch('/inventory?nocache='+Date.now());
       const data = await res.json();
-      inventoryItems = Array.isArray(data.items) ? data.items : [];
-      renderPalette(inventoryItems);
+  // Cache the items globally so other functions (e.g. showViewer) can access details
+  inventoryItems = Array.isArray(data.items) ? data.items : [];
+      renderPalette(data.items || []);
     }
 
     function renderPalette(items){
       const box = document.getElementById('palette');
       box.innerHTML = '';
       items
-        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color||'').localeCompare(b.color||''))
+        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color||'').localeCompare(b.color||'' ) )
         .forEach(it=>{
           const hex = (it.color || '#777777').toUpperCase();
           const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
@@ -359,27 +172,20 @@
           row.className='pill';
           row.setAttribute('role','option');
           row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
-          const isSelected = selectedKey===it.key;
-          row.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-          if(isSelected){
-            selectedSpool = it;
-          }
-          row.onclick = ()=>{
-            selectedKey = it.key;
-            selectedSpool = it;
-            [...box.children].forEach(c=>c.setAttribute('aria-selected','false'));
-            row.setAttribute('aria-selected','true');
-          };
+          row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
+          row.onclick = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
 
           const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
           if(!it.is_transparent){ dot.style.backgroundColor = hex; }
+          // Show only the human-friendly name in the tooltip (no HEX value)
           dot.title = colorName;
           dot.setAttribute('aria-hidden','true');
 
           const col = document.createElement('div');
           const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
           const t2 = document.createElement('div'); t2.className='sub';
+          // Display only the color name without its hex code in the palette
           t2.textContent = colorName;
           col.appendChild(t1); col.appendChild(t2);
 
@@ -397,7 +203,6 @@
       const r = await fetch('/upload_model', {method:'POST', body: fd});
       if(!r.ok){ alert('Upload fallito'); return; }
       const j = await r.json();
-      currentModelName = j.filename;
       showViewer(j.viewer_url, j.filename);
     }
 
@@ -412,14 +217,10 @@
       if(!url){ alert('Inserisci una URL'); return; }
       const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
       const j = await r.json();
-      if(j.viewer_url){
-        currentModelName = j.filename;
-        showViewer(j.viewer_url, j.filename);
-      } else {
-        alert('Nessun modello trovato');
-      }
+      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
     }
 
+    // drag & drop
     const viewer = document.getElementById('viewer');
     viewer.addEventListener('dragover', e => { e.preventDefault(); viewer.classList.add('drag'); });
     viewer.addEventListener('dragleave', () => viewer.classList.remove('drag'));
@@ -429,13 +230,23 @@
       if(f){ uploadFileOrBlob(f); }
     });
 
+    /**
+     * Render a 3D model in the viewer area. Supported formats are STL, OBJ and 3MF.
+     * For unsupported extensions the link to the file is shown instead.
+     *
+     * This function dynamically imports Three.js and the required loaders on first
+     * invocation. Subsequent calls reuse the cached modules to avoid
+     * additional network requests.
+     */
     async function showViewer(path, name){
       currentViewerUrl = path;
-      currentModelName = name || currentModelName;
-      const viewerEl = document.getElementById('viewer');
-      viewerEl.innerHTML = '';
-      viewerEl.classList.remove('drag');
+      const viewer = document.getElementById('viewer');
+      // Remove any previous content and reset drag styling
+      viewer.innerHTML = '';
+      viewer.classList.remove('drag');
 
+
+      // Only load the modules once; store them on window.__threeModules
       if(!window.__threeModules){
         window.__threeModules = {};
         try {
@@ -451,30 +262,35 @@
 
       const { THREE, OrbitControls, STLLoader, OBJLoader, ThreeMFLoader } = window.__threeModules;
       if(!THREE){
-        viewerEl.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        // If modules failed to load, fall back to showing the link
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
         document.getElementById('out').innerHTML = '';
         return;
       }
 
+      // Determine which loader to use based on file extension
       const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
       let loader;
       if(extMatch === 'stl') loader = new STLLoader();
       else if(extMatch === 'obj') loader = new OBJLoader();
       else if(extMatch === '3mf') loader = new ThreeMFLoader();
       else {
-        viewerEl.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        // Unsupported extension: show a link instead of 3D preview
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
         document.getElementById('out').innerHTML = '';
         return;
       }
 
-      const width = viewerEl.clientWidth;
-      const height = viewerEl.clientHeight;
+      // Create renderer, scene, camera and controls
+      const width = viewer.clientWidth;
+      const height = viewer.clientHeight;
       const canvas = document.createElement('div');
       canvas.style.width = '100%';
       canvas.style.height = height + 'px';
-      viewerEl.appendChild(canvas);
+      viewer.appendChild(canvas);
 
       const scene = new THREE.Scene();
+      // Use the page's background variable for the scene background
       const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
       scene.background = new THREE.Color(bg);
       const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
@@ -485,19 +301,24 @@
       controls.enableDamping = true;
       controls.dampingFactor = 0.1;
 
+      // Lighting
       const ambient = new THREE.AmbientLight(0xffffff, 0.6);
       scene.add(ambient);
       const directional = new THREE.DirectionalLight(0xffffff, 0.8);
       directional.position.set(3, 10, 5);
       scene.add(directional);
 
+      // Load the model
       loader.load(path, (result) => {
         let object;
-        const spool = selectedSpool || inventoryItems.find(x => x.key === selectedKey) || {};
-        let hex = spool.color || '#aaaaaa';
-        if(hex && !hex.startsWith('#')) hex = '#' + hex;
+        // Determine the selected spool details to apply colour and transparency
+        const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+        let hex = sel.color || '#aaaaaa';
+        // Ensure hex starts with '#'
+        if(!hex.startsWith('#')) hex = '#' + hex;
         const col = new THREE.Color(hex);
-        const isTransp = Boolean(spool.is_transparent);
+        const isTransp = Boolean(sel.is_transparent);
+        // For STL, result is a geometry; wrap it in a Mesh with custom material
         if(extMatch === 'stl'){
           const material = new THREE.MeshStandardMaterial({
             color: col,
@@ -509,14 +330,17 @@
           object = new THREE.Mesh(result, material);
         } else {
           object = result;
+          // Traverse all child meshes and update their material colour
           object.traverse((child) => {
             if(child.isMesh){
+              // If the mesh has a material, clone it to avoid affecting shared materials
               let mat = child.material;
               if(Array.isArray(mat)){
                 mat = mat.map(m => m.clone());
               } else if(mat){
                 mat = mat.clone();
               }
+              // Set colour and transparency
               if(mat){
                 if(Array.isArray(mat)){
                   mat.forEach(m => {
@@ -535,18 +359,21 @@
           });
         }
         scene.add(object);
+        // Center the object and adjust camera
         const box = new THREE.Box3().setFromObject(object);
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
+        // Compute max dimension and set camera distance accordingly
         const maxDim = Math.max(size.x, size.y, size.z);
         const fov = camera.fov * (Math.PI / 180);
         let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
         camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
-        camera.near = Math.max(maxDim / 100, 0.1);
-        camera.far = Math.max(maxDim * 100, 1000);
+        camera.near = maxDim / 100;
+        camera.far = maxDim * 100;
         camera.updateProjectionMatrix();
         controls.target.copy(center);
         controls.update();
+        // Animation loop
         (function animate(){
           requestAnimationFrame(animate);
           controls.update();
@@ -554,39 +381,27 @@
         })();
       }, undefined, (error) => {
         console.error('Errore nel caricamento del modello 3D:', error);
-        viewerEl.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
       });
+      // Clear any previous output from the stima
       document.getElementById('out').innerHTML = '';
     }
 
     async function estimate(){
       if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
       if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
-      selectedSpool = inventoryItems.find(x => x.key === selectedKey) || selectedSpool;
-      if(!selectedSpool){ alert('Materiale non valido, ricarica la palette.'); return; }
-
-      const rawProcess = window.getProcessConfig();
-      const process = normalizeProcess(rawProcess);
-      if(!process){ return; }
-      warnForMaterial(process);
-      const spoolColor = selectedSpool.color ? (selectedSpool.color.startsWith('#') ? selectedSpool.color : `#${selectedSpool.color}`) : null;
-
       const payload = {
-        model_source: {
-          viewer_url: currentViewerUrl,
-          filename: currentModelName
-        },
-        material: {
-          id_spoolman: selectedSpool.id ?? selectedSpool.spool_id ?? null,
-          name: selectedSpool.material,
-          color_hex: spoolColor
-        },
-        nozzle_mm: 0.4,
-        plate: 'textured_pei',
-        process
+        viewer_url: currentViewerUrl,
+        inventory_key: selectedKey,
+        settings: {
+          layer_h: parseFloat(document.getElementById('layer_h').value),
+          infill: parseFloat(document.getElementById('infill').value),
+          nozzle: parseFloat(document.getElementById('nozzle').value),
+          print_speed: parseFloat(document.getElementById('print_speed').value),
+          travel_speed: parseFloat(document.getElementById('travel_speed').value)
+        }
       };
-
-      const r = await fetch('/api/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
       const j = await r.json();
       if(!r.ok){ alert(j.detail || 'Errore stima'); return; }
       const tmin = Math.round(j.time_s/60);

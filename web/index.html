@@ -181,6 +181,17 @@
     </div>
   </div>
 
+  <!-- Load Three.js and loaders as global scripts.  The examples
+       attach themselves to the global `THREE` object rather than
+       exporting ES modules, so they work without dynamic import.
+       We also load fflate and the 3MF loader for 3MF files. -->
+  <script src="js/libs/fflate.min.js"></script>
+  <script src="js/libs/three.min.js"></script>
+  <script src="js/libs/OrbitControls.js"></script>
+  <script src="js/libs/STLLoader.js"></script>
+  <script src="js/libs/OBJLoader.js"></script>
+  <script src="js/libs/3MFLoader.js"></script>
+
   <script>
     // ---------- util colore ----------
     function hexToRgb(hex){
@@ -418,7 +429,7 @@ let inventoryItems = [];
      * invocation. Subsequent calls reuse the cached modules to avoid
      * additional network requests.
      */
-    async function showViewer(path, name){
+    function showViewer(path, name){
       currentViewerUrl = path;
       // Store the last loaded filename globally so that switching filament colours can reload the model
       window.__lastModelName = name;
@@ -427,28 +438,9 @@ let inventoryItems = [];
       viewer.innerHTML = '';
       viewer.classList.remove('drag');
 
-
-      // Only load the modules once; store them on window.__threeModules
-      if(!window.__threeModules){
-        window.__threeModules = {};
-        try {
-          // Prefer jsDelivr for Three.js modules; some environments block
-          // unpkg requests or return 403 errors which cause the viewer to
-          // fall back to a plain link. jsDelivr is more permissive and
-          // serves the same files. Do not append ?module here – jsDelivr
-          // automatically serves ES modules when the path ends in .js.
-          window.__threeModules.THREE = await import('https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.module.js');
-          window.__threeModules.OrbitControls = (await import('https://cdn.jsdelivr.net/npm/three@0.147.0/examples/jsm/controls/OrbitControls.js')).OrbitControls;
-          window.__threeModules.STLLoader = (await import('https://cdn.jsdelivr.net/npm/three@0.147.0/examples/jsm/loaders/STLLoader.js')).STLLoader;
-          window.__threeModules.OBJLoader = (await import('https://cdn.jsdelivr.net/npm/three@0.147.0/examples/jsm/loaders/OBJLoader.js')).OBJLoader;
-        } catch(err){
-          console.error('Errore nel caricamento delle librerie Three.js:', err);
-        }
-      }
-
-      const { THREE, OrbitControls, STLLoader, OBJLoader } = window.__threeModules;
-      if(!THREE){
-        // If modules failed to load, fall back to showing the link
+      const THREE = window.THREE;
+      if(!THREE || !THREE.WebGLRenderer){
+        // If Three.js has not loaded, fall back to showing the link
         const enc = encodeURI(path);
         viewer.innerHTML = `<a href="${enc}" target="_blank" style="color:var(--accent)">${enc}</a>`;
         document.getElementById('out').innerHTML = '';
@@ -460,9 +452,13 @@ let inventoryItems = [];
       // Encode the path to handle spaces and other special characters
       const safePath = encodeURI(path);
       let loader;
-      if(extMatch === 'stl') loader = new STLLoader();
-      else if(extMatch === 'obj') loader = new OBJLoader();
-      else {
+      if(extMatch === 'stl' && THREE.STLLoader){
+        loader = new THREE.STLLoader();
+      } else if(extMatch === 'obj' && THREE.OBJLoader){
+        loader = new THREE.OBJLoader();
+      } else if(extMatch === '3mf' && THREE.ThreeMFLoader){
+        loader = new THREE.ThreeMFLoader();
+      } else {
         // Unsupported extension: show a link instead of 3D preview
         viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
         document.getElementById('out').innerHTML = '';

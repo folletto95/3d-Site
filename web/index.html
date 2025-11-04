@@ -62,8 +62,27 @@
     <div class="grid">
       <div class="card">
         <h2>Palette (seleziona materiale)</h2>
-        <!-- Filtro per la palette: permette di cercare per materiale o colore -->
-        <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%; box-sizing:border-box" oninput="filterPalette()" />
+        <!-- Filtri multifiltro: l'utente può cercare per materiale, fascia di prezzo e testo. -->
+        <div id="paletteFilters" class="filters" style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <select id="filterMaterial" title="Filtra per materiale" style="min-width:120px" onchange="applyPaletteFilters()">
+            <option value="">Tutti i materiali</option>
+          </select>
+          <select id="filterPrice" title="Filtra per fascia di prezzo" style="min-width:140px" onchange="applyPaletteFilters()">
+            <option value="">Tutti i prezzi</option>
+            <option value="0-10">&lt; 10 €/kg</option>
+            <option value="10-20">10–20 €/kg</option>
+            <option value="20-30">20–30 €/kg</option>
+            <option value="30-">≥ 30 €/kg</option>
+          </select>
+          <!-- Filtro per la trasparenza: consente di mostrare solo bobine colorate o solo trasparenti -->
+          <select id="filterTrans" title="Filtra per trasparenza" style="min-width:150px" onchange="applyPaletteFilters()">
+            <option value="">Tutte le trasparenze</option>
+            <option value="colorato">Colorato</option>
+            <option value="trasparente">Trasparente</option>
+          </select>
+          <!-- Campo di ricerca testuale che completa i filtri sopra -->
+          <input id="paletteSearch" type="text" placeholder="Cerca materiale o colore" style="flex:1;min-width:160px" oninput="applyPaletteFilters()" />
+        </div>
         <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
         <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
       </div>
@@ -219,24 +238,19 @@ let inventoryItems = [];
   // Cache the items globally so other functions (e.g. showViewer) can access details
   inventoryItems = Array.isArray(data.items) ? data.items : [];
       renderPalette(data.items || []);
+      // Update filter dropdowns (e.g. materials) based on loaded inventory
+      if(Array.isArray(data.items)){
+        updatePaletteFilters(data.items);
+      }
     }
 
     // Filter the palette based on the text typed into the paletteFilter input.  When the
     // filter is empty the entire inventory is shown; otherwise only items whose
     // material or colour name matches the search term (case‑insensitive) are rendered.
-    function filterPalette(){
-      const term = (document.getElementById('paletteFilter').value || '').trim().toLowerCase();
-      if(!term){
-        renderPalette(inventoryItems);
-        return;
-      }
-      const filtered = inventoryItems.filter(it => {
-        const mat = (it.material || '').toLowerCase();
-        // Determine a colour name for matching; fall back to nearest basic if necessary
-        const colorName = (it.color_name || nearestBasicName(it.color || '#777777') || '').toLowerCase();
-        return mat.includes(term) || colorName.includes(term);
-      });
-      renderPalette(filtered);
+function filterPalette(){
+      // Legacy alias: simply apply all filters using the unified function.  The
+      // dedicated search field has been renamed to paletteSearch.
+      applyPaletteFilters();
     }
 
     // ---------- preset handling ----------
@@ -323,6 +337,66 @@ let inventoryItems = [];
           box.appendChild(row);
         });
     }
+
+    // Populate filter selects based on available inventory items.  This should be
+    // called whenever new inventory is loaded to update the list of materials.  The
+    // price filter is static and defined in the HTML.
+    function updatePaletteFilters(items){
+      const matSel = document.getElementById('filterMaterial');
+      if(matSel){
+        // Remember the currently selected value
+        const prev = matSel.value;
+        // Remove old dynamic options (keep the first option as 'Tutti i materiali')
+        while(matSel.options.length > 1){ matSel.remove(1); }
+        const materials = Array.from(new Set(items.map(it => it.material || ''))).filter(x => x);
+        materials.sort((a,b)=> a.localeCompare(b));
+        materials.forEach(m => {
+          const opt = document.createElement('option'); opt.value = m; opt.textContent = m; matSel.appendChild(opt);
+        });
+        // Restore selection if still present
+        if(prev && materials.includes(prev)) matSel.value = prev;
+      }
+    }
+
+    // Apply filters and search term to the inventory and re-render the palette.  This
+    // combines the material and price selectors with the free text search.  If
+    // no filters are active, the full inventory is shown.
+    function applyPaletteFilters(){
+      // Read current filter values: search term, material, price and transparency.
+      const term = (document.getElementById('paletteSearch')?.value || '').trim().toLowerCase();
+      const matVal = document.getElementById('filterMaterial')?.value || '';
+      const priceVal = document.getElementById('filterPrice')?.value || '';
+      const transVal = document.getElementById('filterTrans')?.value || '';
+      const filtered = inventoryItems.filter(it => {
+        // Material filter: if a material is selected, only show matching items
+        if(matVal && (it.material || '') !== matVal) return false;
+        // Price filter: filter by price per kg into ranges defined in the select
+        if(priceVal){
+          const ppk = it.price_per_kg;
+          if(ppk == null) return false;
+          if(priceVal === '0-10' && !(ppk < 10)) return false;
+          if(priceVal === '10-20' && !(ppk >= 10 && ppk < 20)) return false;
+          if(priceVal === '20-30' && !(ppk >= 20 && ppk < 30)) return false;
+          if(priceVal === '30-' && !(ppk >= 30)) return false;
+        }
+        // Transparency filter: show only colour or only transparent spools if selected
+        if(transVal){
+          if(transVal === 'colorato' && it.is_transparent) return false;
+          if(transVal === 'trasparente' && !it.is_transparent) return false;
+        }
+        // Text search filter: matches material or colour name (nearest basic if custom name missing)
+        if(term){
+          const mat = (it.material || '').toLowerCase();
+          const colorName = (it.color_name || nearestBasicName(it.color || '#777777') || '').toLowerCase();
+          if(!mat.includes(term) && !colorName.includes(term)) return false;
+        }
+        return true;
+      });
+      renderPalette(filtered);
+    }
+
+    // Maintain backwards compatibility: alias old function name to the new filter logic
+    function filterPalette(){ applyPaletteFilters(); }
 
     // ---------- upload / fetch ----------
     async function uploadFileOrBlob(file){

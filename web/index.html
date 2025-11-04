@@ -79,10 +79,11 @@
       <div class="row" style="flex-wrap:wrap">
         <!-- Include STEP/STP in accepted file types.  These will be
              automatically converted to STL via assimp on the server for slicing. -->
-        <input id="file" type="file" accept=".stl,.obj,.3mf,.zip,.step,.stp" />
+        <input id="file" type="file" accept=".stl,.obj,.3mf,.zip,.step,.stp" multiple />
         <!-- Rimuoviamo il pulsante di caricamento: il file viene caricato appena selezionato -->
         <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
         <button id="btnFetch">Da URL</button>
+        <button id="btnDelete" style="margin-left:8px">Elimina</button>
       </div>
 
       <div class="est">
@@ -381,8 +382,29 @@ let inventoryItems = [];
     // When a user selects a file via the file input, immediately upload it.
     const fileInput = document.getElementById('file');
     fileInput.addEventListener('change', () => {
-      const f = fileInput.files && fileInput.files[0];
-      if(f){ uploadFileOrBlob(f); }
+      const files = fileInput.files;
+      if(!files || files.length === 0) return;
+      // Support multiple uploads: iterate over selected files
+      for(const f of files){
+        if(f){ uploadFileOrBlob(f); }
+      }
+      // Reset the input so the same file can be selected again later
+      fileInput.value = '';
+    });
+
+    // Allow clearing the current model and estimate output
+    const btnDelete = document.getElementById('btnDelete');
+    btnDelete.addEventListener('click', () => {
+      // Reset viewer content
+      const v = document.getElementById('viewer');
+      v.innerHTML = 'Trascina qui un file o caricalo dal pulsante sotto.';
+      v.classList.remove('drag');
+      // Reset global state
+      window.__lastModelName = null;
+      currentViewerUrl = null;
+      // Clear file input and output
+      fileInput.value = '';
+      document.getElementById('out').innerHTML = '';
     });
 
     /**

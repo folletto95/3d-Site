@@ -305,13 +305,34 @@ async def upload_model(file: UploadFile = File(...)):
     target.write_bytes(data)
     model_path = target
     if ext == ".zip":
+        # decompress zip and locate first supported model
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             z.extractall(work)
         m = _find_model_in_dir(work)
         if not m:
-            raise HTTPException(status_code=400, detail="ZIP senza STL/OBJ/3MF")
+            raise HTTPException(status_code=400, detail="ZIP senza STL/OBJ/3MF/STEP")
         model_path = m
-    rel = model_path.relative_to(UPLOAD_ROOT).as_posix()
+
+    # Convert STEP/STP/3MF to STL for preview using assimp, if available.  This
+    # ensures that even unsupported formats can be rendered in the browser.  The
+    # converted file is stored alongside the original and used as the viewer
+    # source; slicing will operate on this STL as well.
+    viewer_model_path = model_path
+    try:
+        suffix = model_path.suffix.lower()
+        if suffix in {".step", ".stp", ".3mf"}:
+            conv_path = model_path.with_suffix(".stl")
+            # use assimp to convert; ignore errors silently
+            subprocess.run([
+                "assimp", "export", str(model_path), str(conv_path), "-f", "stl"
+            ], check=True, timeout=60)
+            if conv_path.exists():
+                viewer_model_path = conv_path
+    except Exception:
+        # ignore conversion errors; preview will use the original path
+        viewer_model_path = model_path
+
+    rel = viewer_model_path.relative_to(UPLOAD_ROOT).as_posix()
     return _no_cache({"viewer_url": f"/files/{rel}", "filename": model_path.name})
 
 @app.post("/fetch_model")
@@ -353,7 +374,21 @@ def fetch_model(payload: dict = Body(...)):
                 raise HTTPException(status_code=400, detail="ZIP remoto senza STL/OBJ/3MF")
             model_path = m
 
-        rel = model_path.relative_to(UPLOAD_ROOT).as_posix()
+        # If the downloaded model is STEP/STP/3MF, attempt to convert to STL for preview
+        viewer_model_path = model_path
+        try:
+            suffix = model_path.suffix.lower()
+            if suffix in {".step", ".stp", ".3mf"}:
+                conv_path = model_path.with_suffix(".stl")
+                subprocess.run([
+                    "assimp", "export", str(model_path), str(conv_path), "-f", "stl"
+                ], check=True, timeout=60)
+                if conv_path.exists():
+                    viewer_model_path = conv_path
+        except Exception:
+            viewer_model_path = model_path
+
+        rel = viewer_model_path.relative_to(UPLOAD_ROOT).as_posix()
         return _no_cache({"viewer_url": f"/files/{rel}", "filename": model_path.name})
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Download fallito: {e}")
@@ -382,6 +417,48 @@ def _grams_from_length_mm(length_mm: float, diameter_mm: float, density_g_cm3: f
 
 def _grams_from_volume_mm3(vol_mm3: float, density_g_cm3: float):
     return (vol_mm3 / 1000.0) * density_g_cm3
+
+# ---- Build volume check ----
+def _is_within_build_volume(gcode_path: Path, max_dim: float = 255.0) -> bool:
+    """
+    Parse a G‑code file and check if the printed object's bounding box fits
+    within a cubic build volume of size `max_dim` mm on each axis.  The
+    function scans all G0/G1 moves, tracking the min/max X, Y and Z positions.
+    It ignores moves without coordinates.  Returns True if the object fits
+    within the volume, False otherwise.  Errors in parsing are treated as
+    failing the check, causing the caller to raise an error.
+    """
+    try:
+        min_pos = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+        max_pos = {"X": 0.0, "Y": 0.0, "Z": 0.0}
+        with open(gcode_path, "r", encoding="utf-8", errors="ignore") as f:
+            for raw in f:
+                if not raw:
+                    continue
+                if raw.lstrip().startswith(";"):
+                    continue
+                line = raw.lstrip()
+                if not (line.startswith("G0") or line.startswith("G1")):
+                    continue
+                coords = re.findall(r"([XYZ])([-+]?\d*\.?\d+)", line)
+                if not coords:
+                    continue
+                for axis, val in coords:
+                    try:
+                        pos = float(val)
+                    except ValueError:
+                        continue
+                    if pos < min_pos[axis]:
+                        min_pos[axis] = pos
+                    if pos > max_pos[axis]:
+                        max_pos[axis] = pos
+        # Compute bounding box dimensions
+        dx = max_pos["X"] - min_pos["X"]
+        dy = max_pos["Y"] - min_pos["Y"]
+        dz = max_pos["Z"] - min_pos["Z"]
+        return dx <= max_dim and dy <= max_dim and dz <= max_dim
+    except Exception:
+        return False
 
 def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel_speed: float) -> float:
     """
@@ -802,6 +879,16 @@ def slice_estimate(payload: dict = Body(...)):
     cost_filament = (filament_g/1000.0) * float(price_per_kg)
     cost_machine  = (time_s/3600.0) * HOURLY_RATE
     total = cost_filament + cost_machine
+    # Check whether the sliced model fits within the build volume (255 mm on each axis)
+    try:
+        gcode_path = UPLOAD_ROOT / r["gcode_rel"]
+        if not _is_within_build_volume(gcode_path, 255.0):
+            raise HTTPException(status_code=400, detail="Il modello non entra nel piano di stampa (255×255×255 mm).")
+    except HTTPException:
+        raise
+    except Exception:
+        # If the check fails unexpectedly, let it continue; slicing may still succeed
+        pass
 
     return _no_cache({
         "time_s": round(time_s),

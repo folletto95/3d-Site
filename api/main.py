@@ -277,7 +277,10 @@ def inventory():
     return _no_cache({"items": items, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
 
 # ---- Upload / Download modelli ----
-ALLOWED_EXT = {".stl", ".obj", ".3mf", ".zip"}
+# Extend supported extensions beyond the default Cura ones.  CuraEngine only
+# natively slices STL/OBJ/3MF, but we can transparently convert other formats
+# (such as STEP or STP) to STL via the `assimp` utility if it is available.
+ALLOWED_EXT = {".stl", ".obj", ".3mf", ".zip", ".step", ".stp"}
 
 def _find_model_in_dir(root: Path):
     order = [".3mf", ".stl", ".obj"]
@@ -590,6 +593,39 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
                     filament_diam=1.75, travel_speed=150, print_speed=60,
                     rot_matrix=None, machine: str = "generic"):
     out_gcode = model_path.with_suffix(".gcode")
+
+    # ---------------------------------------------------------------------
+    # Pre‑process input models that CuraEngine cannot slice directly.
+    #
+    # CuraEngine (4.x) only accepts STL, OBJ and 3MF files as input.  To
+    # support STEP/STP and better handle 3MF files that Cura fails to open,
+    # we attempt to convert unsupported formats to STL using the `assimp`
+    # command‑line tool.  If the conversion succeeds the sliced model
+    # operates on the resulting STL; otherwise we fall back to the original
+    # file path (which will likely trigger a CuraEngine error).
+    #
+    ext = model_path.suffix.lower()
+    model_to_slice = model_path
+    # Convert STEP and STP formats (and optionally 3MF) using assimp if available
+    if ext in {".step", ".stp", ".3mf"}:
+        # Construct a deterministic path alongside the original model
+        conv_path = model_path.with_suffix(".stl")
+        try:
+            # Use assimp export to convert the model.  The '-f stl' option
+            # explicitly sets the output format.  Conversion failures will
+            # raise CalledProcessError which we silently ignore (the
+            # original file will be passed to CuraEngine).
+            subprocess.run([
+                "assimp", "export", str(model_path), str(conv_path), "-f", "stl"
+            ], check=True, timeout=60)
+            if conv_path.exists():
+                model_to_slice = conv_path
+        except Exception:
+            # If assimp isn't installed or conversion fails leave
+            # `model_to_slice` unchanged.  The CuraEngine call will then
+            # propagate an error to the user.
+            model_to_slice = model_path
+
     if rot_matrix is None:
         rot_matrix = _identity3()
 
@@ -615,7 +651,7 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
 
     # Parametri in mm/s (Cura 4.x)
     cura_args += [
-        "-l", str(model_path),
+        "-l", str(model_to_slice),
         "-o", str(out_gcode),
         "-s", f"layerHeight={layer_h}",
         "-s", f"infill_sparse_density={infill}",
@@ -707,22 +743,15 @@ def slice_estimate(payload: dict = Body(...)):
         machine=machine
     )
 
-    # Compute the estimated print time.  CuraEngine's `;TIME:` comment is often
-    # either missing or yields a constant placeholder (e.g. 111 min) across
-    # different models.  To provide realistic variation we always compute
-    # a fallback estimate based on the actual movements in the generated G‑code.
-    # If the fallback returns a positive value, we override CuraEngine's value.
-    gcode_path = UPLOAD_ROOT / r["gcode_rel"]
-    try:
+    # Compute time from CuraEngine or fall back to our estimator.  If CuraEngine
+    # provided a valid TIME comment (>0), use it; otherwise approximate print
+    # time by summing XYZ movements in the generated G‑code.  This yields
+    # variable times across models instead of a constant placeholder.
+    time_s = r["time_s"] if r.get("time_s") else None
+    if not time_s:
+        gcode_path = UPLOAD_ROOT / r["gcode_rel"]
         time_est = _estimate_print_time_from_gcode(gcode_path, print_speed, travel_speed)
-    except Exception:
-        time_est = 0.0
-    # Retrieve CuraEngine's reported time (seconds) if available
-    ce_time = r.get("time_s") or 0
-    if time_est and time_est > 0:
-        time_s = int(time_est)
-    else:
-        time_s = int(ce_time)
+        time_s = int(time_est) if time_est > 0 else 0
 
     # Densità materiale
     density = _density_for(mat)

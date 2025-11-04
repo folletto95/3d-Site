@@ -32,6 +32,9 @@ UPLOAD_ROOT = Path("/app/uploads")
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/files", StaticFiles(directory=str(UPLOAD_ROOT)), name="files")
 
+# monta /app/web affinché /web/js/libs/... venga servito
+app.mount("/web", StaticFiles(directory="/app/web"), name="web")
+
 # ---- Utils generiche ----
 def _no_cache(payload: dict):
     return JSONResponse(content=payload, headers={"Cache-Control": "no-store, max-age=0"})

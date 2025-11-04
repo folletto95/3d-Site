@@ -1,4 +1,5 @@
-import os, re, io, uuid, zipfile, subprocess, shlex
+import os, re, io, uuid, zipfile, subprocess, json
+from functools import lru_cache
 from pathlib import Path
 import math
 import requests
@@ -141,6 +142,89 @@ def _build_inventory_items():
         })
     return items
 
+# ---- Rotazioni (per Cura >=5: lasciamo parsing per futuri upgrade) ----
+def _identity3():
+    return [[1,0,0],[0,1,0],[0,0,1]]
+
+def _is_3x3_numeric(M):
+    try:
+        return (
+            isinstance(M, (list, tuple)) and len(M) == 3 and
+            all(isinstance(r, (list, tuple)) and len(r) == 3 for r in M) and
+            all(all(isinstance(x, (int, float)) for x in r) for r in M)
+        )
+    except Exception:
+        return False
+
+def _deg2rad(d): return d * math.pi / 180.0
+def _matmul3(A, B):
+    return [
+        [A[0][0]*B[0][j] + A[0][1]*B[1][j] + A[0][2]*B[2][j] for j in range(3)],
+        [A[1][0]*B[0][j] + A[1][1]*B[1][j] + A[1][2]*B[2][j] for j in range(3)],
+        [A[2][0]*B[0][j] + A[2][1]*B[1][j] + A[2][2]*B[2][j] for j in range(3)],
+    ]
+def _rot_x(deg):
+    a = _deg2rad(deg); c, s = math.cos(a), math.sin(a)
+    return [[1,0,0],[0,c,-s],[0,s,c]]
+def _rot_y(deg):
+    a = _deg2rad(deg); c, s = math.cos(a), math.sin(a)
+    return [[c,0,s],[0,1,0],[-s,0,c]]
+def _rot_z(deg):
+    a = _deg2rad(deg); c, s = math.cos(a), math.sin(a)
+    return [[c,-s,0],[s,c,0],[0,0,1]]
+
+def _parse_rotation_from_settings(settings: dict):
+    # Manteniamo la compat per quando passerai a Cura 5: qui calcoliamo sempre una 3x3
+    M = settings.get("mesh_rotation_matrix")
+    if _is_3x3_numeric(M):
+        return M
+    e = settings.get("mesh_rotation_euler_deg")
+    if e is not None:
+        if isinstance(e, dict):
+            x = float(e.get("x", 0)); y = float(e.get("y", 0)); z = float(e.get("z", 0))
+            order = (e.get("order") or "XYZ").upper()
+        elif isinstance(e, (list, tuple)) and len(e) == 3:
+            x, y, z = map(float, e); order = (settings.get("mesh_rotation_order") or "XYZ").upper()
+        else:
+            x = y = z = 0.0; order = "XYZ"
+        R = _identity3()
+        rot_map = {"X": _rot_x, "Y": _rot_y, "Z": _rot_z}
+        angles = {"X": x, "Y": y, "Z": z}
+        for ax in order:
+            if ax in rot_map:
+                R = _matmul3(R, rot_map[ax](angles[ax]))
+        return R
+    p = settings.get("mesh_rotation_preset")
+    if isinstance(p, str) and p.strip():
+        R = _identity3()
+        for token in p.replace(" ", "").split("+"):
+            if not token: continue
+            ax = token[0].upper()
+            try: ang = float(token[1:])
+            except ValueError: ang = 0.0
+            if   ax == "X": R = _matmul3(R, _rot_x(ang))
+            elif ax == "Y": R = _matmul3(R, _rot_y(ang))
+            elif ax == "Z": R = _matmul3(R, _rot_z(ang))
+        return R
+    return _identity3()
+
+# ---- Versione Cura nel container ----
+@lru_cache()
+def _cura_version():
+    try:
+        cp = subprocess.run(["CuraEngine", "--version"], capture_output=True, text=True, timeout=5)
+        out = (cp.stdout or "") + (cp.stderr or "")
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)", out)
+        if m:
+            return tuple(map(int, m.groups()))
+    except Exception:
+        pass
+    return (0,0,0)
+
+def _cura_supports_mesh_rotation():
+    major, minor, patch = _cura_version()
+    return major >= 5
+
 # ---- Routes base/UI ----
 @app.get("/")
 def root():
@@ -154,7 +238,7 @@ def ui():
 def health():
     return {"ok": True}
 
-# ---- API Spoolman (immutate nella semantica) ----
+# ---- API Spoolman ----
 @app.get("/spools")
 def spools():
     sp = _get(f"{API_V1}/spool", params={"allow_archived": False, "limit": 1000})
@@ -275,67 +359,73 @@ DENSITY = {
     "NYLON": 1.14, "PA": 1.14, "PC": 1.20, "PET": 1.38
 }
 def _density_for(material: str):
-    if not material:
-        return 1.24
+    if not material: return 1.24
     m = material.upper()
-    for k, v in DENSITY.items():
-        if k in m:
-            return v
+    for k,v in DENSITY.items():
+        if k in m: return v
     return 1.24
 
 def _grams_from_length_mm(length_mm: float, diameter_mm: float, density_g_cm3: float):
     # volume (mm^3) = Area * lunghezza; Area = pi*(d/2)^2
-    area_mm2 = math.pi * (diameter_mm / 2.0) ** 2
+    area_mm2 = math.pi * (diameter_mm/2.0)**2
     vol_mm3 = area_mm2 * length_mm
     # 1 cm3 = 1000 mm3
     vol_cm3 = vol_mm3 / 1000.0
     return vol_cm3 * density_g_cm3
 
-CURA_DEFS_DIR = Path(__file__).resolve().parent / "cura_defs"
-
 def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
-                    filament_diam=1.75, travel_speed=150, print_speed=60):
+                    filament_diam=1.75, travel_speed=150, print_speed=60,
+                    rot_matrix=None):
     out_gcode = model_path.with_suffix(".gcode")
-    cura_args = [
-        "CuraEngine", "slice",
-        # Carica le definizioni di base e quelle della X1C (ordine: base, macchina, estrusore)
-        "-j", str(CURA_DEFS_DIR / "fdmprinter.def.json"),
-        "-j", str(CURA_DEFS_DIR / "fdmextruder.def.json"),
-        "-j", str(CURA_DEFS_DIR / "bambu_x1c.def.json"),
-        "-j", str(CURA_DEFS_DIR / "bambu_x1c_extruder_0.def.json"),
+    if rot_matrix is None:
+        rot_matrix = _identity3()
+
+    printer_def = Path("/api/cura_defs/fdmprinter.def.json")
+    extruder_def = Path("/api/cura_defs/fdmextruder.def.json")
+
+    cura_args = ["CuraEngine", "slice"]
+
+    # Definitions 4.13 (riduce warning/unknown settings)
+    if printer_def.exists():
+        cura_args += ["-j", str(printer_def)]
+    if extruder_def.exists():
+        cura_args += ["-j", str(extruder_def)]
+
+    # Parametri in mm/s (Cura 4.x)
+    cura_args += [
         "-l", str(model_path),
         "-o", str(out_gcode),
         "-s", f"layerHeight={layer_h}",
         "-s", f"infill_sparse_density={infill}",
         "-s", f"machine_nozzle_size={nozzle}",
         "-s", f"material_diameter={filament_diam}",
-        "-s", f"speed_travel={travel_speed * 60 / 1000:.2f}",
-        "-s", f"speed_print={print_speed * 60 / 1000:.2f}",
+        "-s", f"speed_travel={travel_speed}",
+        "-s", f"speed_print={print_speed}",
     ]
+
+    # Solo Cura >=5 supporta mesh_rotation_matrix: su 4.x NON la passiamo
+    if _cura_supports_mesh_rotation():
+        cura_args += ["-s", f"mesh_rotation_matrix={json.dumps(rot_matrix)}"]
+
     cp = subprocess.run(cura_args, capture_output=True, text=True, timeout=180)
     if cp.returncode != 0:
-        raise HTTPException(status_code=500, detail=f"CuraEngine error: {cp.stderr or cp.stdout}")
+        raise HTTPException(status_code=500, detail=f"CuraEngine error:\n{cp.stderr or cp.stdout}")
 
     text = out_gcode.read_text(errors="ignore")
+
     # parse tempo
     m_time = re.search(r";TIME:(\d+)", text)
     time_s = int(m_time.group(1)) if m_time else None
 
-    # parse filamento (mm / m / g)
-    filament_mm = None
-    filament_g = None
+    # parse filamento (mm / m / cm / g)
+    filament_mm = None; filament_g = None
     m_f = re.search(r"[Ff]ilament used[:=]?\s*([\d\.]+)\s*(mm|m|cm|g)", text)
     if m_f:
-        val = float(m_f.group(1))
-        unit = m_f.group(2).lower()
-        if unit == "g":
-            filament_g = val
-        elif unit == "m":
-            filament_mm = val * 1000.0
-        elif unit == "cm":
-            filament_mm = val * 10.0
-        elif unit == "mm":
-            filament_mm = val
+        val = float(m_f.group(1)); unit = m_f.group(2).lower()
+        if   unit == "g":  filament_g  = val
+        elif unit == "m":  filament_mm = val * 1000.0
+        elif unit == "cm": filament_mm = val * 10.0
+        elif unit == "mm": filament_mm = val
 
     return {
         "time_s": time_s,
@@ -351,9 +441,14 @@ def slice_estimate(payload: dict = Body(...)):
     {
       "viewer_url": "/files/<path_relativo>",
       "inventory_key": "<chiave di /inventory>",
-      "settings": { "layer_h":0.2,"infill":15,"nozzle":0.4,"print_speed":60,"travel_speed":150 }
+      "settings": {
+        "layer_h":0.2, "infill":15, "nozzle":0.4, "print_speed":60, "travel_speed":150,
+        # opzionali (attivi solo con Cura >=5):
+        "mesh_rotation_matrix": [[1,0,0],[0,1,0],[0,0,1]],
+        "mesh_rotation_euler_deg": {"x":90, "y":0, "z":0, "order":"XYZ"},
+        "mesh_rotation_preset": "x90+y-90"
+      }
     }
-    Tutti i prezzi restano server-side.
     """
     viewer_url = payload.get("viewer_url")
     inv_key = payload.get("inventory_key")
@@ -380,13 +475,17 @@ def slice_estimate(payload: dict = Body(...)):
     layer_h = float(settings.get("layer_h", 0.2))
     infill = float(settings.get("infill", 15))
     nozzle = float(settings.get("nozzle", 0.4))
-    print_speed = float(settings.get("print_speed", 60))   # mm/s
-    travel_speed = float(settings.get("travel_speed", 150))  # mm/s
+    print_speed = float(settings.get("print_speed", 60))    # mm/s
+    travel_speed = float(settings.get("travel_speed", 150)) # mm/s
+
+    # Calcolo matrice (per futura compatibilità con Cura >=5)
+    rot_matrix = _parse_rotation_from_settings(settings)
 
     r = _run_cura_slice(
         model_path=model_path,
         layer_h=layer_h, infill=infill, nozzle=nozzle,
-        filament_diam=diam, travel_speed=travel_speed, print_speed=print_speed
+        filament_diam=diam, travel_speed=travel_speed, print_speed=print_speed,
+        rot_matrix=rot_matrix
     )
 
     time_s = r["time_s"] or 0
@@ -396,8 +495,8 @@ def slice_estimate(payload: dict = Body(...)):
             raise HTTPException(status_code=500, detail="Impossibile leggere il consumo filamento dallo slicer")
         filament_g = _grams_from_length_mm(r["filament_mm"], diam, _density_for(mat))
 
-    cost_filament = (filament_g / 1000.0) * float(price_per_kg)
-    cost_machine = (time_s / 3600.0) * HOURLY_RATE
+    cost_filament = (filament_g/1000.0) * float(price_per_kg)
+    cost_machine  = (time_s/3600.0) * HOURLY_RATE
     total = cost_filament + cost_machine
 
     return _no_cache({

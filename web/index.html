@@ -71,21 +71,6 @@
       </div>
 
       <div class="est">
-        <label>Macchina
-          <select id="machine">
-            <option value="fdm">Generic FDM (Cura)</option>
-            <option value="bambu_x1c">Bambu X1 Carbon</option>
-          </select>
-        </label>
-        <label>Finitura
-          <select id="finish">
-            <option value="standard">Standard</option>
-            <option value="bozza">Bozza</option>
-            <option value="fine">Fine</option>
-            <option value="extra">Extra Fine</option>
-          </select>
-        </label>
-
         <label>Layer
           <select id="layer_h">
             <option value="0.20">0.20 mm</option>
@@ -402,34 +387,7 @@ let inventoryItems = [];
       document.getElementById('out').innerHTML = '';
     }
 
-    // --- preset finiture ---
-const PRESETS = {
-  fdm: {
-    bozza:        { layer_h: 0.28, nozzle: 0.4, print_speed: 70,  travel_speed: 150 },
-    standard:     { layer_h: 0.20, nozzle: 0.4, print_speed: 60,  travel_speed: 150 },
-    fine:         { layer_h: 0.12, nozzle: 0.4, print_speed: 45,  travel_speed: 140 },
-    extra:        { layer_h: 0.08, nozzle: 0.4, print_speed: 35,  travel_speed: 130 },
-  },
-  bambu_x1c: {
-    bozza:        { layer_h: 0.28, nozzle: 0.4, print_speed: 180, travel_speed: 300 },
-    standard:     { layer_h: 0.20, nozzle: 0.4, print_speed: 160, travel_speed: 300 },
-    fine:         { layer_h: 0.12, nozzle: 0.4, print_speed: 140, travel_speed: 280 },
-    extra:        { layer_h: 0.08, nozzle: 0.4, print_speed: 120, travel_speed: 260 },
-  }
-};
-
-function applyPreset(){
-  const m = document.getElementById('machine').value;
-  const f = document.getElementById('finish').value;
-  const p = (PRESETS[m] && PRESETS[m][f]) ? PRESETS[m][f] : null;
-  if(!p) return;
-  document.getElementById('layer_h').value   = String(p.layer_h.toFixed(2));
-  document.getElementById('nozzle').value    = String(p.nozzle.toFixed(1));
-  document.getElementById('print_speed').value  = String(p.print_speed);
-  document.getElementById('travel_speed').value = String(p.travel_speed);
-}
-
-async function estimate(){
+    async function estimate(){
       if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
       if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
       const payload = {
@@ -458,9 +416,6 @@ async function estimate(){
     document.getElementById('btnUpload').onclick = uploadFile;
     document.getElementById('btnFetch').onclick  = fetchFromUrl;
     document.getElementById('btnEstimate').onclick  = estimate;
-    document.getElementById('machine').onchange = applyPreset;
-    document.getElementById('finish').onchange = applyPreset;
-    applyPreset();
     loadPalette();
     setInterval(loadPalette, REFRESH_MS);
   </script>

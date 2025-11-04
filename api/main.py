@@ -16,10 +16,9 @@ app.add_middleware(
 )
 
 # ---- Config ----
-SPOOLMAN_BASE = os.getenv("SPOOLMAN_URL", "http://spoolman:7912").rstrip("/")
+SPOOLMAN_BASE = os.getenv("SPOOLMAN_URL", "http://192.168.10.164:7912").rstrip("/")
 API_V1 = f"{SPOOLMAN_BASE}/api/v1"
 CURRENCY = os.getenv("CURRENCY", "EUR")
-MAX_UPLOAD_MB = float(os.getenv("MAX_UPLOAD_MB", "100"))
 HOURLY_RATE = float(os.getenv("HOURLY_RATE", "1"))
 
 UPLOAD_ROOT = Path("/app/uploads")
@@ -282,21 +281,6 @@ def _find_model_in_dir(root: Path):
         if best: break
     return best
 
-# ---- Safe ZIP extraction ----
-def _safe_extractall(zf, dest: Path):
-    dest = dest.resolve()
-    for member in zf.infolist():
-        name = member.filename
-        target_path = (dest / name).resolve()
-        if not str(target_path).startswith(str(dest)):
-            raise HTTPException(status_code=400, detail="ZIP contiene percorsi non sicuri")
-        if member.is_dir():
-            target_path.mkdir(parents=True, exist_ok=True)
-        else:
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(member) as src, open(target_path, "wb") as out:
-                shutil.copyfileobj(src, out)
-
 @app.post("/upload_model")
 async def upload_model(file: UploadFile = File(...)):
     name = file.filename or "model"
@@ -308,13 +292,11 @@ async def upload_model(file: UploadFile = File(...)):
     work.mkdir(parents=True, exist_ok=True)
     target = work / name
     data = await file.read()
-    if len(data) > MAX_UPLOAD_MB*1024*1024:
-        raise HTTPException(status_code=413, detail="File troppo grande")
     target.write_bytes(data)
     model_path = target
     if ext == ".zip":
         with zipfile.ZipFile(io.BytesIO(data)) as z:
-            _safe_extractall(z, work)
+            z.extractall(work)
         m = _find_model_in_dir(work)
         if not m:
             raise HTTPException(status_code=400, detail="ZIP senza STL/OBJ/3MF")
@@ -355,7 +337,7 @@ def fetch_model(payload: dict = Body(...)):
         model_path = dst
         if dst.suffix.lower() == ".zip":
             with zipfile.ZipFile(dst) as z:
-                _safe_extractall(z, work)
+                z.extractall(work)
             m = _find_model_in_dir(work)
             if not m:
                 raise HTTPException(status_code=400, detail="ZIP remoto senza STL/OBJ/3MF")
@@ -462,17 +444,13 @@ def _parse_cura_filament_usage(text: str, diameter_mm: float, density_g_cm3: flo
 
 def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
                     filament_diam=1.75, travel_speed=150, print_speed=60,
-                    rot_matrix=None, machine: str = 'fdm'):
+                    rot_matrix=None):
     out_gcode = model_path.with_suffix(".gcode")
     if rot_matrix is None:
         rot_matrix = _identity3()
 
-    if (machine or "").lower() in ("bambu_x1c","x1c","bambu"):
-        printer_def = Path("/api/cura_defs/bambu_x1c.def.json")
-        extruder_def = Path("/api/cura_defs/bambu_x1c_extruder_0.def.json")
-    else:
-        printer_def = Path("/api/cura_defs/fdmprinter.def.json")
-        extruder_def = Path("/api/cura_defs/fdmextruder.def.json")
+    printer_def = Path("/api/cura_defs/fdmprinter.def.json")
+    extruder_def = Path("/api/cura_defs/fdmextruder.def.json")
 
     cura_args = ["CuraEngine", "slice"]
 
@@ -570,8 +548,7 @@ def slice_estimate(payload: dict = Body(...)):
         model_path=model_path,
         layer_h=layer_h, infill=infill, nozzle=nozzle,
         filament_diam=diam, travel_speed=travel_speed, print_speed=print_speed,
-        rot_matrix=_parse_rotation_from_settings(settings),
-        machine=str(settings.get('machine','fdm'))
+        rot_matrix=_parse_rotation_from_settings(settings)
     )
 
     time_s = r["time_s"] or 0

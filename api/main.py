@@ -373,74 +373,64 @@ def _grams_from_length_mm(length_mm: float, diameter_mm: float, density_g_cm3: f
 def _grams_from_volume_mm3(vol_mm3: float, density_g_cm3: float):
     return (vol_mm3 / 1000.0) * density_g_cm3
 
-def _parse_cura_filament_usage(text: str, diameter_mm: float, density_g_cm3: float):
+def _parse_cura_filament_usage(text: str):
     """
-    Ritorna (filament_g, filament_mm).
-    Somma tutte le occorrenze trovate (multi-estrusore).
+    Ritorna (grams, length_mm, volume_mm3) sommando tutte le occorrenze.
     Supporta:
-      ;Filament used: 12.3m|mm|cm|g
-      ;Filament used [g]: 12.3
-      ;Filament used [mm^3]: 12345.6   (o [mm3], [cm^3], [cm3])
+      ;Filament used: <val><unit>   unit in {mm, cm, m, g, mm3, mm^3, cm3, cm^3} (anche tra [ ... ])
+      ;Filament used [unit]: <val>
+      ;Material used [unit]: <val>
     """
     total_g = 0.0
     total_len_mm = 0.0
     total_vol_mm3 = 0.0
 
-    # 1) "Filament used: <val><unit>"
+    # 1) "Filament used: <val><unit>" (unità anche con []), una o più righe
     for m in re.finditer(r";\s*Filament used\s*:\s*([\d\.]+)\s*([a-zA-Z0-9\^\[\]]+)", text, re.I):
         val = float(m.group(1))
-        unit = m.group(2).strip().lower()
-        unit = unit.strip("[]")  # in caso sia tipo [g]
-        if unit in ("g",):
+        unit = m.group(2).strip().lower().strip("[]")
+        if unit == "g":
             total_g += val
-        elif unit in ("mm",):
+        elif unit == "mm":
             total_len_mm += val
-        elif unit in ("cm",):
+        elif unit == "cm":
             total_len_mm += val * 10.0
-        elif unit in ("m",):
+        elif unit == "m":
             total_len_mm += val * 1000.0
-        elif unit in ("mm3", "mm^3"):
+        elif unit in ("mm3","mm^3"):
             total_vol_mm3 += val
-        elif unit in ("cm3", "cm^3"):
+        elif unit in ("cm3","cm^3"):
             total_vol_mm3 += val * 1000.0
 
     # 2) "Filament used [unit]: <val>"
     for m in re.finditer(r";\s*Filament used\s*\[\s*([^\]]+)\s*\]\s*:\s*([\d\.]+)", text, re.I):
         unit = m.group(1).strip().lower().replace(" ", "")
         val = float(m.group(2))
-        if unit in ("g",):
+        if unit == "g":
             total_g += val
-        elif unit in ("mm",):
+        elif unit == "mm":
             total_len_mm += val
-        elif unit in ("cm",):
+        elif unit == "cm":
             total_len_mm += val * 10.0
-        elif unit in ("m",):
+        elif unit == "m":
             total_len_mm += val * 1000.0
-        elif unit in ("mm3", "mm^3"):
+        elif unit in ("mm3","mm^3"):
             total_vol_mm3 += val
-        elif unit in ("cm3", "cm^3"):
+        elif unit in ("cm3","cm^3"):
             total_vol_mm3 += val * 1000.0
 
-    # 3) fallback "Material used" (alcune build lo usano)
+    # 3) "Material used [unit]: <val>"
     for m in re.finditer(r";\s*Material used\s*\[\s*([^\]]+)\s*\]\s*:\s*([\d\.]+)", text, re.I):
         unit = m.group(1).strip().lower().replace(" ", "")
         val = float(m.group(2))
-        if unit in ("g",):
+        if unit == "g":
             total_g += val
-        elif unit in ("mm3", "mm^3"):
+        elif unit in ("mm3","mm^3"):
             total_vol_mm3 += val
-        elif unit in ("cm3", "cm^3"):
+        elif unit in ("cm3","cm^3"):
             total_vol_mm3 += val * 1000.0
 
-    # Preferisci g diretto; altrimenti converti volume; altrimenti lunghezza
-    if total_g > 0:
-        return total_g, None
-    if total_vol_mm3 > 0:
-        return _grams_from_volume_mm3(total_vol_mm3, density_g_cm3), None
-    if total_len_mm > 0:
-        return None, total_len_mm
-
-    return None, None
+    return total_g or None, total_len_mm or None, total_vol_mm3 or None
 
 def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
                     filament_diam=1.75, travel_speed=150, print_speed=60,
@@ -454,13 +444,12 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
 
     cura_args = ["CuraEngine", "slice"]
 
-    # Definitions 4.13
+    # Definitions 4.13 + commenti forzati (serve per avere le righe 'Filament used')
     if printer_def.exists():
         cura_args += ["-j", str(printer_def)]
     if extruder_def.exists():
         cura_args += ["-j", str(extruder_def)]
 
-    # Parametri in mm/s (Cura 4.x)
     cura_args += [
         "-l", str(model_path),
         "-o", str(out_gcode),
@@ -468,7 +457,8 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
         "-s", f"infill_sparse_density={infill}",
         "-s", f"machine_nozzle_size={nozzle}",
         "-s", f"material_diameter={filament_diam}",
-        "-s", f"speed_travel={travel_speed}",
+        "-s", f"gcode_comments=true",          # <— chiave per far emettere i commenti riassuntivi
+        "-s", f"speed_travel={travel_speed}",  # Cura 4.x in mm/s
         "-s", f"speed_print={print_speed}",
     ]
 
@@ -482,21 +472,18 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
 
     text = out_gcode.read_text(errors="ignore")
 
-    # parse tempo
+    # tempo
     m_time = re.search(r";TIME:(\d+)", text)
     time_s = int(m_time.group(1)) if m_time else None
 
-    # parse filamento robusto (g / mm / mm^3 / cm^3)
-    filament_g, filament_mm = _parse_cura_filament_usage(
-        text=text,
-        diameter_mm=filament_diam,
-        density_g_cm3=_density_for("")  # verrà ricalcolato più avanti su materiale
-    )
+    # consumo da Cura (solo parsing delle sue righe)
+    grams, length_mm, volume_mm3 = _parse_cura_filament_usage(text)
 
     return {
         "time_s": time_s,
-        "filament_mm": filament_mm,
-        "filament_g": filament_g,
+        "filament_g": grams,
+        "filament_mm": length_mm,
+        "filament_mm3": volume_mm3,
         "gcode_rel": out_gcode.relative_to(UPLOAD_ROOT).as_posix()
     }
 
@@ -553,24 +540,14 @@ def slice_estimate(payload: dict = Body(...)):
 
     time_s = r["time_s"] or 0
 
-    # Densità materiale
+    # Se Cura ha dato i grammi, usiamo quelli; altrimenti prova volume o lunghezza SEMPRE venuti da Cura
     density = _density_for(mat)
 
-    # Priorità: usa i grammi se presenti; altrimenti converti da volume; altrimenti da lunghezza
     filament_g = r["filament_g"]
-    filament_mm = r["filament_mm"]
-
-    if filament_g is None and filament_mm is None:
-        # tentativo extra: cerca solo volume nel testo (alcune build lo mettono tardi)
-        g2, mm2 = _parse_cura_filament_usage(
-            text=(UPLOAD_ROOT / r["gcode_rel"]).read_text(errors="ignore"),
-            diameter_mm=diam, density_g_cm3=density
-        )
-        filament_g = g2 if g2 is not None else filament_g
-        filament_mm = mm2 if mm2 is not None else filament_mm
-
-    if filament_g is None and filament_mm is not None:
-        filament_g = _grams_from_length_mm(filament_mm, diam, density)
+    if filament_g is None and r["filament_mm3"] is not None:
+        filament_g = _grams_from_volume_mm3(r["filament_mm3"], density)
+    if filament_g is None and r["filament_mm"] is not None:
+        filament_g = _grams_from_length_mm(r["filament_mm"], diam, density)
 
     if filament_g is None:
         raise HTTPException(status_code=500, detail="Impossibile leggere il consumo filamento dallo slicer")

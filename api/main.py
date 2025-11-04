@@ -514,13 +514,22 @@ def _estimate_filament_length_from_gcode(gcode_path: Path) -> float:
 
 def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
                     filament_diam=1.75, travel_speed=150, print_speed=60,
-                    rot_matrix=None):
+                    rot_matrix=None, machine: str = "generic"):
     out_gcode = model_path.with_suffix(".gcode")
     if rot_matrix is None:
         rot_matrix = _identity3()
 
-    printer_def = Path("/api/cura_defs/fdmprinter.def.json")
-    extruder_def = Path("/api/cura_defs/fdmextruder.def.json")
+    # Choose machine definitions based on the selected machine. Fall back to the generic
+    # FDM definitions if the requested machine definition is missing. The available
+    # machines include "generic" (default) and "bambu_x1c". Additional machines can
+    # be added by placing matching `<machine>.def.json` and `<machine>_extruder_0.def.json`
+    # files under /api/cura_defs.
+    if machine == "bambu_x1c":
+        printer_def = Path("/api/cura_defs/bambu_x1c.def.json")
+        extruder_def = Path("/api/cura_defs/bambu_x1c_extruder_0.def.json")
+    else:
+        printer_def = Path("/api/cura_defs/fdmprinter.def.json")
+        extruder_def = Path("/api/cura_defs/fdmextruder.def.json")
 
     cura_args = ["CuraEngine", "slice"]
 
@@ -614,11 +623,14 @@ def slice_estimate(payload: dict = Body(...)):
     print_speed = float(settings.get("print_speed", 60))    # mm/s
     travel_speed = float(settings.get("travel_speed", 150)) # mm/s
 
+    # Select machine type: if provided in settings or top level payload, use it.
+    machine = (settings.get("machine") or payload.get("machine") or "generic").strip().lower()
     r = _run_cura_slice(
         model_path=model_path,
         layer_h=layer_h, infill=infill, nozzle=nozzle,
         filament_diam=diam, travel_speed=travel_speed, print_speed=print_speed,
-        rot_matrix=_parse_rotation_from_settings(settings)
+        rot_matrix=_parse_rotation_from_settings(settings),
+        machine=machine
     )
 
     time_s = r["time_s"] or 0

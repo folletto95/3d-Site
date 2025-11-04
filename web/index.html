@@ -13,8 +13,10 @@
     .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
     h1{margin:0 0 12px;font-size:28px}
     h2{margin:0 0 12px;font-size:18px}
-    .palette{display:flex;flex-direction:column;gap:10px;max-height:460px;overflow:auto;padding-right:6px}
-    .pill{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:16px;background:#0b1527;border:1px solid var(--ring);cursor:pointer}
+    /* Compact the palette slightly by reducing gaps and paddings. Lower the max height so more of the page is
+       available for the estimate section. */
+    .palette{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;padding-right:6px}
+    .pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;font-size:14px}
     .pill[aria-selected="true"]{outline:2px solid var(--accent)}
     .left{display:flex;align-items:center;gap:12px}
     .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
@@ -39,8 +41,9 @@
     .viewer.drag{border-color:var(--accent); color:var(--accent)}
     .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
     @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
-    .out{margin-top:12px;font-size:14px}
-    .out b{color:#fff}
+    /* Increase the visibility of the estimate output by enlarging the font and adding spacing */
+    .out{margin-top:16px;font-size:16px;line-height:1.4}
+    .out b{color:#fff;font-size:18px}
   </style>
 </head>
 <body>
@@ -96,16 +99,41 @@
         </label>
         <label>Print speed
           <select id="print_speed">
-            <option value="60">60 mm/s</option>
-            <option value="80">80 mm/s</option>
+            <!-- Generic speeds -->
             <option value="40">40 mm/s</option>
+            <option value="60" selected>60 mm/s</option>
+            <option value="80">80 mm/s</option>
+            <!-- Higher speeds for fast machines like Bambu X1C -->
+            <option value="100">100 mm/s</option>
+            <option value="160">160 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="250">250 mm/s</option>
           </select>
         </label>
         <label>Travel speed
           <select id="travel_speed">
-            <option value="150">150 mm/s</option>
-            <option value="200">200 mm/s</option>
+            <!-- Generic speeds -->
             <option value="100">100 mm/s</option>
+            <option value="150" selected>150 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <!-- Higher speeds for fast machines -->
+            <option value="300">300 mm/s</option>
+            <option value="500">500 mm/s</option>
+          </select>
+        </label>
+        <!-- Introduce a preset selector to quickly apply common profiles. Each preset sets
+             layer height, infill percentage, nozzle diameter, print speed, travel speed
+             and the target machine (generic FDM or Bambu X1C). Users can still tweak the
+             values manually after choosing a preset. -->
+        <label>Preset
+          <select id="preset">
+            <option value="">-- Personalizzato --</option>
+            <optgroup label="Bambu X1C">
+              <option value="x1c_standard_020">X1C 0.20 Standard</option>
+              <option value="x1c_quality_016">X1C 0.16 Quality</option>
+              <option value="x1c_fine_012">X1C 0.12 Fine</option>
+              <option value="x1c_draft_028">X1C 0.28 Draft</option>
+            </optgroup>
           </select>
         </label>
         <div style="display:flex;align-items:end">
@@ -142,6 +170,8 @@
     // ---------- stato ----------
 let selectedKey = null;
 let currentViewerUrl = null;
+// Track which machine (generic or bambu_x1c) should be used when estimating
+let selectedMachine = "generic";
 // Hold the most recent inventory items fetched from the server.
 // Each element includes keys such as `key`, `color`, `material`, `diameter_mm`, `price_per_kg` and `is_transparent`.
 // This cache is used later to apply the selected filament colour to the 3D model
@@ -156,6 +186,32 @@ let inventoryItems = [];
   // Cache the items globally so other functions (e.g. showViewer) can access details
   inventoryItems = Array.isArray(data.items) ? data.items : [];
       renderPalette(data.items || []);
+    }
+
+    // ---------- preset handling ----------
+    // Predefined printing presets. Each preset defines the machine to use and
+    // suggested values for layer height (mm), infill (%), nozzle (mm),
+    // print speed (mm/s) and travel speed (mm/s). Users can further tweak
+    // individual settings after selecting a preset.
+    const PRESETS = {
+      "": { machine: "generic" },
+      // Bambu Lab X1C presets approximated from typical manufacturer defaults
+      "x1c_standard_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
+      "x1c_quality_016": { machine: "bambu_x1c", layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
+      "x1c_fine_012":    { machine: "bambu_x1c", layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
+      "x1c_draft_028":   { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 }
+    };
+
+    function applyPreset(key){
+      const preset = PRESETS[key] || PRESETS[""];
+      // Update selected machine
+      selectedMachine = preset.machine || "generic";
+      // For each setting, if defined, update the corresponding select input
+      if(preset.layer_h != null){ document.getElementById('layer_h').value = preset.layer_h.toFixed(2); }
+      if(preset.infill != null){ document.getElementById('infill').value   = preset.infill.toString(); }
+      if(preset.nozzle != null){ document.getElementById('nozzle').value   = preset.nozzle.toFixed(1); }
+      if(preset.print_speed != null){ document.getElementById('print_speed').value = preset.print_speed.toString(); }
+      if(preset.travel_speed != null){ document.getElementById('travel_speed').value = preset.travel_speed.toString(); }
     }
 
     function renderPalette(items){
@@ -408,7 +464,12 @@ let inventoryItems = [];
       const payload = {
         viewer_url: currentViewerUrl,
         inventory_key: selectedKey,
+        // Provide the selected machine at the top-level to inform the server which
+        // printer profile to use (generic or bambu_x1c). See api/main.py for
+        // details.
+        machine: selectedMachine,
         settings: {
+          machine: selectedMachine,
           layer_h: parseFloat(document.getElementById('layer_h').value),
           infill: parseFloat(document.getElementById('infill').value),
           nozzle: parseFloat(document.getElementById('nozzle').value),
@@ -431,6 +492,11 @@ let inventoryItems = [];
     document.getElementById('btnUpload').onclick = uploadFile;
     document.getElementById('btnFetch').onclick  = fetchFromUrl;
     document.getElementById('btnEstimate').onclick  = estimate;
+    // When the preset selection changes, apply the selected preset
+    const presetSel = document.getElementById('preset');
+    if(presetSel){
+      presetSel.onchange = () => applyPreset(presetSel.value);
+    }
     loadPalette();
     setInterval(loadPalette, REFRESH_MS);
   </script>

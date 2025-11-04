@@ -283,7 +283,9 @@ def inventory():
 ALLOWED_EXT = {".stl", ".obj", ".3mf", ".zip", ".step", ".stp"}
 
 def _find_model_in_dir(root: Path):
-    order = [".3mf", ".stl", ".obj"]
+    # Include STEP/STP so that models packaged in ZIPs can be picked up and
+    # subsequently converted to STL.  3MF, STL and OBJ still take precedence.
+    order = [".3mf", ".stl", ".obj", ".step", ".stp"]
     best = None
     for ext in order:
         for p in root.rglob(f"*{ext}"):

@@ -329,6 +329,9 @@ let inventoryItems = [];
 
     // ---------- upload / fetch ----------
     async function uploadFileOrBlob(file){
+      // Show loading message
+      const v = document.getElementById('viewer');
+      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello…'; }
       const fd = new FormData(); fd.append('file', file);
       const r = await fetch('/upload_model', {method:'POST', body: fd});
       if(!r.ok){ alert('Upload fallito'); return; }
@@ -449,6 +452,8 @@ let inventoryItems = [];
 
       // Determine which loader to use based on file extension
       const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
+      // Encode the path to handle spaces and other special characters
+      const safePath = encodeURI(path);
       let loader;
       if(extMatch === 'stl') loader = new STLLoader();
       else if(extMatch === 'obj') loader = new OBJLoader();
@@ -488,7 +493,7 @@ let inventoryItems = [];
       scene.add(directional);
 
       // Load the model
-      loader.load(path, (result) => {
+      loader.load(safePath, (result) => {
         let object;
         // Determine the selected spool details to apply colour and transparency
         const sel = inventoryItems.find(x => x.key === selectedKey) || {};
@@ -560,7 +565,9 @@ let inventoryItems = [];
         })();
       }, undefined, (error) => {
         console.error('Errore nel caricamento del modello 3D:', error);
-        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        // If loading fails, show the link (encode URI to avoid broken links)
+        const link = encodeURI(path);
+        viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
       });
       // Clear any previous output from the stima
       document.getElementById('out').innerHTML = '';

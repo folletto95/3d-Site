@@ -5,362 +5,419 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Magazzino Filamenti & Stima</title>
   <style>
-    :root{
-      --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --text:#e2e8f0; --ring:#334155; --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
-    a{color:var(--accent);text-decoration:none}
+    :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
     .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
     @media (max-width:1000px){.grid{grid-template-columns:1fr}}
-    .card{background:var(--card);border-radius:16px;border:1px solid var(--ring);padding:16px}
-    h1{font-size:22px;margin:0 0 8px}
-    h2{font-size:16px;margin:0 0 12px;color:var(--muted);font-weight:600}
-    .row{display:flex;gap:10px;align-items:center}
-    .btn{background:#0b1220;border:1px solid var(--ring);color:var(--text);padding:7px 12px;border-radius:10px;cursor:pointer}
-    .btn:hover{border-color:#47607f}
-    .btn.primary{background:var(--accent);border-color:transparent;color:#00121a}
-    .input, select{background:#0b1220;border:1px solid var(--ring);color:var(--text);padding:7px 10px;border-radius:10px;outline:none}
-    .cols{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
-    @media (max-width:900px){.cols{grid-template-columns:1fr 1fr}}
-    .spools{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
-    .spool{display:flex;gap:12px;align-items:center;border:1px solid var(--ring);border-radius:12px;padding:10px;background:#0b1220;cursor:pointer}
-    .spool.active{outline:2px solid var(--accent)}
-    .dot{width:24px;height:24px;border-radius:50%;border:1px solid #0003;flex:0 0 auto}
-    .badge{font-size:11px;color:#9fb2c9}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
-    .result{display:flex;gap:24px;flex-wrap:wrap}
-    .kv{background:#0b1220;border:1px solid var(--ring);padding:10px 12px;border-radius:10px}
-    .kv b{display:block;font-size:12px;color:#9fb2c9}
-    canvas{display:block;width:100%;height:520px;border-radius:12px;background:#0b1220;border:1px solid var(--ring)}
-    .note{color:#9fb2c9;font-size:12px}
-    .divider{height:1px;background:var(--ring);margin:12px 0}
+    .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
+    h1{margin:0 0 12px;font-size:28px}
+    h2{margin:0 0 12px;font-size:18px}
+    .palette{display:flex;flex-direction:column;gap:10px;max-height:460px;overflow:auto;padding-right:6px}
+    .pill{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:16px;background:#0b1527;border:1px solid var(--ring);cursor:pointer}
+    .pill[aria-selected="true"]{outline:2px solid var(--accent)}
+    .left{display:flex;align-items:center;gap:12px}
+    .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
+    .dot.transparent{
+      background-image:
+        linear-gradient(45deg,#999 25%,transparent 25%),
+        linear-gradient(-45deg,#999 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#999 75%),
+        linear-gradient(-45deg,transparent 75%,#999 75%);
+      background-size:8px 8px;
+      background-position:0 0,0 4px,4px -4px,-4px 0;
+      background-color:#fff;
+    }
+    .title{font-weight:700}
+    .sub{font-size:12px;color:var(--muted)}
+    .price{font-weight:800}
+    .row{display:flex;gap:12px;align-items:center}
+    input[type="file"],input[type="text"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
+    button{cursor:pointer}
+    .hint{color:var(--muted);font-size:13px}
+    .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+    .viewer.drag{border-color:var(--accent); color:var(--accent)}
+    .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
+    @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
+    .out{margin-top:12px;font-size:14px}
+    .out b{color:#fff}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Magazzino Filamenti &amp; Stima</h1>
+    <h1>Magazzino Filamenti & Stima</h1>
+    <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
 
     <div class="grid">
-      <!-- Colonna sinistra: elenco filamenti -->
       <div class="card">
-        <h2>Palette Spoolman</h2>
-        <div id="spools" class="spools"></div>
-        <div class="divider"></div>
-        <div class="note">Seleziona materiale/colore: verrà usato per la stima e per colorare il modello.</div>
+        <h2>Palette (seleziona materiale)</h2>
+        <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
+        <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
       </div>
 
-      <!-- Colonna destra: viewer + form -->
       <div class="card">
         <h2>Viewer 3D (STL/3MF/OBJ)</h2>
-        <div id="viewerMount"></div>
+        <div id="viewer" class="viewer" aria-live="polite">Trascina qui un file o caricalo dal pulsante sotto.</div>
+      </div>
+    </div>
 
-        <div class="divider"></div>
+    <div class="card" style="margin-top:18px">
+      <h2>File & Stima</h2>
+      <div class="row" style="flex-wrap:wrap">
+        <input id="file" type="file" accept=".stl,.obj,.3mf,.zip" />
+        <button id="btnUpload">Carica</button>
+        <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
+        <button id="btnFetch">Da URL</button>
+      </div>
 
-        <div class="cols" style="margin-bottom:10px">
-          <div class="row"><label>Layer</label>
-            <select id="layer" class="input">
-              <option value="0.20">0.20 mm</option>
-              <option value="0.16">0.16 mm</option>
-              <option value="0.28">0.28 mm</option>
-              <option value="0.10">0.10 mm</option>
-            </select>
-          </div>
-          <div class="row"><label>Infill</label>
-            <select id="infill" class="input">
-              <option value="15">15%</option>
-              <option value="10">10%</option>
-              <option value="20">20%</option>
-              <option value="30">30%</option>
-            </select>
-          </div>
-          <div class="row"><label>Nozzle</label>
-            <select id="nozzle" class="input">
-              <option value="0.4">0.4 mm</option>
-              <option value="0.6">0.6 mm</option>
-              <option value="0.8">0.8 mm</option>
-            </select>
-          </div>
-          <div class="row"><label>Print</label>
-            <select id="pspeed" class="input">
-              <option value="60">60 mm/s</option>
-              <option value="80">80 mm/s</option>
-              <option value="40">40 mm/s</option>
-            </select>
-          </div>
-          <div class="row"><label>Travel</label>
-            <select id="tspeed" class="input">
-              <option value="150">150 mm/s</option>
-              <option value="200">200 mm/s</option>
-              <option value="100">100 mm/s</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="row" style="gap:12px;flex-wrap:wrap;margin-bottom:10px">
-          <input id="file" type="file" class="input" />
-          <button class="btn" id="btnUpload">Carica</button>
-          <input id="url" class="input" placeholder="https://www.thingiverse.com/thing:..." style="min-width:260px" />
-          <button class="btn" id="btnUrl">Da URL</button>
-          <button class="btn primary" id="btnEstimate">Stima</button>
-        </div>
-
-        <div id="filename" class="note mono"></div>
-
-        <div class="result" id="result" style="margin-top:10px;display:none">
-          <div class="kv"><b>Tempo</b><span id="r_time" class="mono"></span></div>
-          <div class="kv"><b>Filamento</b><span id="r_fil" class="mono"></span></div>
-          <div class="kv"><b>Materiale</b><span id="r_mat" class="mono"></span></div>
-          <div class="kv"><b>Prezzo</b><span id="r_tot" class="mono"></span></div>
-          <div class="kv"><b>G-code</b><a id="r_gcode" class="mono" target="_blank" rel="noreferrer">scarica</a></div>
+      <div class="est">
+        <label>Layer
+          <select id="layer_h">
+            <option value="0.20">0.20 mm</option>
+            <option value="0.16">0.16 mm</option>
+            <option value="0.12">0.12 mm</option>
+            <option value="0.28">0.28 mm</option>
+          </select>
+        </label>
+        <label>Infill
+          <select id="infill">
+            <option value="15">15%</option>
+            <option value="5">5%</option>
+            <option value="20">20%</option>
+            <option value="40">40%</option>
+          </select>
+        </label>
+        <label>Nozzle
+          <select id="nozzle">
+            <option value="0.4">0.4 mm</option>
+            <option value="0.6">0.6 mm</option>
+            <option value="0.2">0.2 mm</option>
+          </select>
+        </label>
+        <label>Print speed
+          <select id="print_speed">
+            <option value="60">60 mm/s</option>
+            <option value="80">80 mm/s</option>
+            <option value="40">40 mm/s</option>
+          </select>
+        </label>
+        <label>Travel speed
+          <select id="travel_speed">
+            <option value="150">150 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="100">100 mm/s</option>
+          </select>
+        </label>
+        <div style="display:flex;align-items:end">
+          <button id="btnEstimate">Stima</button>
         </div>
       </div>
+
+      <div id="out" class="out"></div>
     </div>
   </div>
 
-  <!-- THREE & loaders (module) -->
-  <script type="module">
-    import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-    import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
-    import { STLLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/STLLoader.js";
-    import { OBJLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/OBJLoader.js";
-    import { ThreeMFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/3MFLoader.js";
+  <script>
+    // ---------- util colore ----------
+    function hexToRgb(hex){
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
+      return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:127,g:127,b:127};
+    }
+    const BASIC = {
+      "#000000":"Nero", "#FFFFFF":"Bianco", "#FF0000":"Rosso", "#00FF00":"Verde",
+      "#0000FF":"Blu", "#FFFF00":"Giallo", "#FFA500":"Arancione", "#FFC0CB":"Rosa",
+      "#800080":"Viola", "#A52A2A":"Marrone", "#808080":"Grigio", "#00FFFF":"Ciano",
+      "#008000":"Verde scuro", "#ADD8E6":"Azzurro", "#FFD700":"Oro", "#8B4513":"Terra di Siena"
+    };
+    function nearestBasicName(hex){
+      const {r,g,b}=hexToRgb(hex), entries=Object.entries(BASIC);
+      let best=entries[0][0], dist=1e9;
+      for(const [h] of entries){
+        const c=hexToRgb(h); const d=(r-c.r)**2+(g-c.g)**2+(b-c.b)**2;
+        if(d<dist){dist=d;best=h}
+      }
+      return BASIC[best];
+    }
 
-    // ------------------------
-    // Stato globale minimale
-    // ------------------------
-    window.selectedInventoryItem = null;     // { key, color, material, diameter_mm, is_transparent }
-    window.viewerScene = null;               // usata da applyModelColor()
-    let currentModelUrl = null;
+    // ---------- stato ----------
+let selectedKey = null;
+let currentViewerUrl = null;
+// Hold the most recent inventory items fetched from the server.
+// Each element includes keys such as `key`, `color`, `material`, `diameter_mm`, `price_per_kg` and `is_transparent`.
+// This cache is used later to apply the selected filament colour to the 3D model
+// and to lookup the current selection for estimating costs.
+let inventoryItems = [];
+    const REFRESH_MS = 60000; // 60 s
 
-    // ------------------------
-    // Viewer Three.js
-    // ------------------------
-    const mount = document.getElementById("viewerMount");
-    const renderer = new THREE.WebGLRenderer({antialias:true});
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.setSize(mount.clientWidth, 520);
-    renderer.setClearColor(0x0b1220, 1);
-    mount.appendChild(renderer.domElement);
+    // ---------- palette ----------
+    async function loadPalette(){
+      const res = await fetch('/inventory?nocache='+Date.now());
+      const data = await res.json();
+  // Cache the items globally so other functions (e.g. showViewer) can access details
+  inventoryItems = Array.isArray(data.items) ? data.items : [];
+      renderPalette(data.items || []);
+    }
 
-    const scene = new THREE.Scene();
-    scene.background = null; // colore gestito dal canvas
+    function renderPalette(items){
+      const box = document.getElementById('palette');
+      box.innerHTML = '';
+      items
+        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color||'').localeCompare(b.color||'' ) )
+        .forEach(it=>{
+          const hex = (it.color || '#777777').toUpperCase();
+          const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
+          const colorName = it.color_name || nearestBasicName(hex);
 
-    const camera = new THREE.PerspectiveCamera(50, mount.clientWidth/520, 0.1, 2000);
-    camera.position.set(0, 120, 200);
+          const row = document.createElement('div');
+          row.className='pill';
+          row.setAttribute('role','option');
+          row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
+          row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
+          row.onclick = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+          const left = document.createElement('div'); left.className='left';
+          const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
+          if(!it.is_transparent){ dot.style.backgroundColor = hex; }
+          // Show only the human-friendly name in the tooltip (no HEX value)
+          dot.title = colorName;
+          dot.setAttribute('aria-hidden','true');
 
-    const amb = new THREE.AmbientLight(0xffffff, 1.3);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.7);
-    dir.position.set(1,2,3);
-    scene.add(amb, dir);
+          const col = document.createElement('div');
+          const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
+          const t2 = document.createElement('div'); t2.className='sub';
+          // Display only the color name without its hex code in the palette
+          t2.textContent = colorName;
+          col.appendChild(t1); col.appendChild(t2);
 
-    const grid = new THREE.GridHelper(300, 30, 0x2a3344, 0x1a2230);
-    grid.position.y = -0.01;
-    scene.add(grid);
+          left.appendChild(dot); left.appendChild(col);
+          const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
 
-    const modelGroup = new THREE.Group();
-    scene.add(modelGroup);
+          row.appendChild(left); row.appendChild(priceEl);
+          box.appendChild(row);
+        });
+    }
 
-    window.addEventListener("resize", () => {
-      renderer.setSize(mount.clientWidth, 520);
-      camera.aspect = mount.clientWidth/520;
-      camera.updateProjectionMatrix();
+    // ---------- upload / fetch ----------
+    async function uploadFileOrBlob(file){
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/upload_model', {method:'POST', body: fd});
+      if(!r.ok){ alert('Upload fallito'); return; }
+      const j = await r.json();
+      showViewer(j.viewer_url, j.filename);
+    }
+
+    async function uploadFile(){
+      const f = document.getElementById('file').files[0];
+      if(!f){ alert('Seleziona un file'); return; }
+      uploadFileOrBlob(f);
+    }
+
+    async function fetchFromUrl(){
+      const url = document.getElementById('url').value.trim();
+      if(!url){ alert('Inserisci una URL'); return; }
+      const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
+      const j = await r.json();
+      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
+    }
+
+    // drag & drop
+    const viewer = document.getElementById('viewer');
+    viewer.addEventListener('dragover', e => { e.preventDefault(); viewer.classList.add('drag'); });
+    viewer.addEventListener('dragleave', () => viewer.classList.remove('drag'));
+    viewer.addEventListener('drop', e => {
+      e.preventDefault(); viewer.classList.remove('drag');
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ uploadFileOrBlob(f); }
     });
 
-    function animate(){
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    }
-    animate();
+    /**
+     * Render a 3D model in the viewer area. Supported formats are STL, OBJ and 3MF.
+     * For unsupported extensions the link to the file is shown instead.
+     *
+     * This function dynamically imports Three.js and the required loaders on first
+     * invocation. Subsequent calls reuse the cached modules to avoid
+     * additional network requests.
+     */
+    async function showViewer(path, name){
+      currentViewerUrl = path;
+      const viewer = document.getElementById('viewer');
+      // Remove any previous content and reset drag styling
+      viewer.innerHTML = '';
+      viewer.classList.remove('drag');
 
-    // Espone la scena per le funzioni di colore
-    window.viewerScene = scene;
 
-    function clearModel(){
-      while(modelGroup.children.length) modelGroup.remove(modelGroup.children[0]);
-    }
+      // Only load the modules once; store them on window.__threeModules
+      if(!window.__threeModules){
+        window.__threeModules = {};
+        try {
+          window.__threeModules.THREE = await import('https://unpkg.com/three@0.147.0/build/three.module.js?module');
+          window.__threeModules.OrbitControls = (await import('https://unpkg.com/three@0.147.0/examples/jsm/controls/OrbitControls.js?module')).OrbitControls;
+          window.__threeModules.STLLoader = (await import('https://unpkg.com/three@0.147.0/examples/jsm/loaders/STLLoader.js?module')).STLLoader;
+          window.__threeModules.OBJLoader = (await import('https://unpkg.com/three@0.147.0/examples/jsm/loaders/OBJLoader.js?module')).OBJLoader;
+          window.__threeModules.ThreeMFLoader = (await import('https://unpkg.com/three@0.147.0/examples/jsm/loaders/3MFLoader.js?module')).ThreeMFLoader;
+        } catch(err){
+          console.error('Errore nel caricamento delle librerie Three.js:', err);
+        }
+      }
 
-    function fitCameraToObject(obj){
-      const box = new THREE.Box3().setFromObject(obj);
-      if (!box.isEmpty()) {
-        const size = new THREE.Vector3(); box.getSize(size);
-        const center = new THREE.Vector3(); box.getCenter(center);
+      const { THREE, OrbitControls, STLLoader, OBJLoader, ThreeMFLoader } = window.__threeModules;
+      if(!THREE){
+        // If modules failed to load, fall back to showing the link
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
+
+      // Determine which loader to use based on file extension
+      const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
+      let loader;
+      if(extMatch === 'stl') loader = new STLLoader();
+      else if(extMatch === 'obj') loader = new OBJLoader();
+      else if(extMatch === '3mf') loader = new ThreeMFLoader();
+      else {
+        // Unsupported extension: show a link instead of 3D preview
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
+
+      // Create renderer, scene, camera and controls
+      const width = viewer.clientWidth;
+      const height = viewer.clientHeight;
+      const canvas = document.createElement('div');
+      canvas.style.width = '100%';
+      canvas.style.height = height + 'px';
+      viewer.appendChild(canvas);
+
+      const scene = new THREE.Scene();
+      // Use the page's background variable for the scene background
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
+      scene.background = new THREE.Color(bg);
+      const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(width, height);
+      canvas.appendChild(renderer.domElement);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
+
+      // Lighting
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambient);
+      const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+      directional.position.set(3, 10, 5);
+      scene.add(directional);
+
+      // Load the model
+      loader.load(path, (result) => {
+        let object;
+        // Determine the selected spool details to apply colour and transparency
+        const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+        let hex = sel.color || '#aaaaaa';
+        // Ensure hex starts with '#'
+        if(!hex.startsWith('#')) hex = '#' + hex;
+        const col = new THREE.Color(hex);
+        const isTransp = Boolean(sel.is_transparent);
+        // For STL, result is a geometry; wrap it in a Mesh with custom material
+        if(extMatch === 'stl'){
+          const material = new THREE.MeshStandardMaterial({
+            color: col,
+            transparent: isTransp,
+            opacity: isTransp ? 0.6 : 1.0,
+            metalness: 0.1,
+            roughness: 0.8
+          });
+          object = new THREE.Mesh(result, material);
+        } else {
+          object = result;
+          // Traverse all child meshes and update their material colour
+          object.traverse((child) => {
+            if(child.isMesh){
+              // If the mesh has a material, clone it to avoid affecting shared materials
+              let mat = child.material;
+              if(Array.isArray(mat)){
+                mat = mat.map(m => m.clone());
+              } else if(mat){
+                mat = mat.clone();
+              }
+              // Set colour and transparency
+              if(mat){
+                if(Array.isArray(mat)){
+                  mat.forEach(m => {
+                    m.color = col.clone();
+                    m.transparent = isTransp;
+                    m.opacity = isTransp ? 0.6 : 1.0;
+                  });
+                } else {
+                  mat.color = col.clone();
+                  mat.transparent = isTransp;
+                  mat.opacity = isTransp ? 0.6 : 1.0;
+                }
+                child.material = mat;
+              }
+            }
+          });
+        }
+        scene.add(object);
+        // Center the object and adjust camera
+        const box = new THREE.Box3().setFromObject(object);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        // Compute max dimension and set camera distance accordingly
         const maxDim = Math.max(size.x, size.y, size.z);
         const fov = camera.fov * (Math.PI / 180);
-        let camZ = Math.abs(maxDim / Math.tan(fov/2)) * 1.2;
-        camera.position.set(center.x + camZ*0.35, center.y + camZ*0.35, center.z + camZ);
-        camera.near = camZ/100; camera.far = camZ*20; camera.updateProjectionMatrix();
+        let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+        camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
+        camera.near = maxDim / 100;
+        camera.far = maxDim * 100;
+        camera.updateProjectionMatrix();
         controls.target.copy(center);
         controls.update();
-      }
-    }
-
-    async function loadModel(url){
-      currentModelUrl = url;
-      clearModel();
-      const ext = url.split(".").pop().toLowerCase().split("?")[0];
-      const colorHex = (window.selectedInventoryItem && window.selectedInventoryItem.color) || "#9aa4b2";
-      const baseMat = new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex)});
-      if (window.selectedInventoryItem?.is_transparent) { baseMat.transparent = true; baseMat.opacity = 0.6; }
-
-      if (ext === "stl"){
-        const loader = new STLLoader();
-        loader.load(url, geo => {
-          geo.computeVertexNormals();
-          const mesh = new THREE.Mesh(geo, baseMat.clone());
-          mesh.castShadow = true; mesh.receiveShadow = true;
-          modelGroup.add(mesh);
-          fitCameraToObject(modelGroup);
-          onModelLoadedToViewer(scene);
-        });
-      } else if (ext === "obj"){
-        const loader = new OBJLoader();
-        loader.load(url, obj => {
-          obj.traverse(o => { if (o.isMesh) { o.material = baseMat.clone(); o.castShadow = o.receiveShadow = true; } });
-          modelGroup.add(obj);
-          fitCameraToObject(modelGroup);
-          onModelLoadedToViewer(scene);
-        });
-      } else if (ext === "3mf"){
-        const loader = new ThreeMFLoader();
-        loader.load(url, obj => {
-          obj.traverse(o => { if (o.isMesh) { o.material = baseMat.clone(); o.castShadow = o.receiveShadow = true; } });
-          modelGroup.add(obj);
-          fitCameraToObject(modelGroup);
-          onModelLoadedToViewer(scene);
-        });
-      } else {
-        alert("Formato non supportato per il viewer: " + ext);
-      }
-    }
-
-    // ---------------------------------------------------
-    // Funzioni richieste: applyModelColor + hook onLoaded
-    // ---------------------------------------------------
-    window.applyModelColor = function applyModelColor(hex){
-      if (!window.viewerScene) return;
-      try {
-        window.viewerScene.traverse(obj => {
-          if (obj.isMesh && obj.material){
-            const setColor = (m) => { if (m && m.color) m.color.set(hex); };
-            if (Array.isArray(obj.material)) obj.material.forEach(setColor);
-            else setColor(obj.material);
-          }
-        });
-      } catch(e){ console.warn("applyModelColor error", e); }
-    }
-
-    window.onModelLoadedToViewer = function onModelLoadedToViewer(sceneRef){
-      window.viewerScene = sceneRef;
-      const sel = window.selectedInventoryItem;
-      if (sel && sel.color) applyModelColor(sel.color);
-    }
-
-    // ------------------------
-    // Backend helpers
-    // ------------------------
-    const $ = (id)=>document.getElementById(id);
-    let currentViewerUrl = null;    // es. "/files/<uuid>/model.stl"
-
-    async function fetchJSON(url, opts){
-      const r = await fetch(url, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
-      if (!r.ok){
-        const txt = await r.text();
-        try { const j = JSON.parse(txt); alert(j.detail || txt); } catch(e){ alert(txt); }
-        throw new Error("HTTP " + r.status);
-      }
-      return r.json();
-    }
-
-    // Spools / inventory
-    async function loadInventory(){
-      const data = await fetchJSON("/inventory");
-      const host = document.getElementById("spools");
-      host.innerHTML = "";
-      data.items.forEach(item=>{
-        const card = document.createElement("button");
-        card.type="button"; card.className="spool"; card.dataset.key=item.key;
-        const dot = document.createElement("div"); dot.className="dot"; dot.style.background = item.color || "#999";
-        card.appendChild(dot);
-
-        const info = document.createElement("div"); info.style.textAlign="left";
-        const mat = document.createElement("div"); mat.textContent = `${item.material || "?"} — ${item.diameter_mm || "?"}mm`;
-        const price = document.createElement("div"); price.className="badge mono";
-        price.textContent = item.price_per_kg ? `${item.price_per_kg.toFixed(2)} ${data.currency}/kg` : "€/kg n.d.";
-        info.appendChild(mat); info.appendChild(price);
-        card.appendChild(info);
-
-        card.addEventListener("click", ()=>{
-          document.querySelectorAll(".spool").forEach(n=>n.classList.remove("active"));
-          card.classList.add("active");
-          window.selectedInventoryItem = {
-            key:item.key, color:item.color || "#9aa4b2", material:item.material,
-            diameter_mm:item.diameter_mm||1.75, is_transparent: !!item.is_transparent
-          };
-          applyModelColor(window.selectedInventoryItem.color);
-        });
-
-        host.appendChild(card);
+        // Animation loop
+        (function animate(){
+          requestAnimationFrame(animate);
+          controls.update();
+          renderer.render(scene, camera);
+        })();
+      }, undefined, (error) => {
+        console.error('Errore nel caricamento del modello 3D:', error);
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
       });
+      // Clear any previous output from the stima
+      document.getElementById('out').innerHTML = '';
     }
 
-    // Upload locale
-    $("btnUpload").addEventListener("click", async ()=>{
-      const f = $("file").files[0];
-      if (!f){ alert("Seleziona un file"); return; }
-      const fd = new FormData(); fd.append("file", f);
-      const r = await fetch("/upload_model", { method:"POST", body:fd });
-      const j = await r.json();
-      if (r.ok){
-        currentViewerUrl = j.viewer_url;
-        $("filename").textContent = j.filename;
-        loadModel(j.viewer_url);
-      } else {
-        alert(j.detail || "Errore upload");
-      }
-    });
-
-    // Fetch da URL (Thingiverse, Prusa, GitHub raw, zip…)
-    $("btnUrl").addEventListener("click", async ()=>{
-      const url = $("url").value.trim();
-      if (!url){ alert("Inserisci un URL"); return; }
-      const j = await fetchJSON("/fetch_model", {method:"POST", body:JSON.stringify({url})});
-      currentViewerUrl = j.viewer_url;
-      $("filename").textContent = j.filename;
-      loadModel(j.viewer_url);
-    });
-
-    // Stima
-    $("btnEstimate").addEventListener("click", async ()=>{
-      if (!currentViewerUrl){ alert("Carica prima un modello"); return; }
-      if (!window.selectedInventoryItem){ alert("Seleziona un materiale/colore dalla palette"); return; }
+    async function estimate(){
+      if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
+      if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
       const payload = {
         viewer_url: currentViewerUrl,
-        inventory_key: window.selectedInventoryItem.key,
+        inventory_key: selectedKey,
         settings: {
-          layer_h: parseFloat($("layer").value),
-          infill: parseFloat($("infill").value),
-          nozzle: parseFloat($("nozzle").value),
-          print_speed: parseFloat($("pspeed").value),
-          travel_speed: parseFloat($("tspeed").value)
+          layer_h: parseFloat(document.getElementById('layer_h').value),
+          infill: parseFloat(document.getElementById('infill').value),
+          nozzle: parseFloat(document.getElementById('nozzle').value),
+          print_speed: parseFloat(document.getElementById('print_speed').value),
+          travel_speed: parseFloat(document.getElementById('travel_speed').value)
         }
       };
-      const res = await fetchJSON("/slice/estimate", {method:"POST", body:JSON.stringify(payload)});
-      $("result").style.display = "flex";
-      $("r_time").textContent = (res.time_s ? (Math.round(res.time_s/60)+" min") : "n/d");
-      $("r_fil").textContent = `${res.filament_g.toFixed(1)} g`;
-      $("r_mat").textContent = `${res.price_per_kg.toFixed(2)} ${res.currency}/kg`;
-      $("r_tot").textContent = `${res.total.toFixed(2)} ${res.currency}`;
-      $("r_gcode").href = res.gcode_url;
-    });
+      const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const j = await r.json();
+      if(!r.ok){ alert(j.detail || 'Errore stima'); return; }
+      const tmin = Math.round(j.time_s/60);
+      document.getElementById('out').innerHTML = `
+        Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
+        Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
+        Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
+      `;
+    }
 
-    // Bootstrap
-    loadInventory();
+    // ---------- init ----------
+    document.getElementById('btnUpload').onclick = uploadFile;
+    document.getElementById('btnFetch').onclick  = fetchFromUrl;
+    document.getElementById('btnEstimate').onclick  = estimate;
+    loadPalette();
+    setInterval(loadPalette, REFRESH_MS);
   </script>
 </body>
 </html>

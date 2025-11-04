@@ -44,6 +44,13 @@
     /* Increase the visibility of the estimate output by enlarging the font and adding spacing */
     .out{margin-top:16px;font-size:16px;line-height:1.4}
     .out b{color:#fff;font-size:18px}
+
+    /* Hide advanced printing parameters when presets are used. The values still exist in the DOM
+       so that they can be updated programmatically and sent to the server, but they are not
+       visible to the user. */
+    .advanced {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -68,13 +75,13 @@
       <h2>File & Stima</h2>
       <div class="row" style="flex-wrap:wrap">
         <input id="file" type="file" accept=".stl,.obj,.3mf,.zip" />
-        <button id="btnUpload">Carica</button>
+        <!-- Rimuoviamo il pulsante di caricamento: il file viene caricato appena selezionato -->
         <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
         <button id="btnFetch">Da URL</button>
       </div>
 
       <div class="est">
-        <label>Layer
+        <label class="advanced">Layer
           <select id="layer_h">
             <option value="0.20">0.20 mm</option>
             <option value="0.16">0.16 mm</option>
@@ -82,7 +89,7 @@
             <option value="0.28">0.28 mm</option>
           </select>
         </label>
-        <label>Infill
+        <label class="advanced">Infill
           <select id="infill">
             <option value="15">15%</option>
             <option value="5">5%</option>
@@ -90,14 +97,14 @@
             <option value="40">40%</option>
           </select>
         </label>
-        <label>Nozzle
+        <label class="advanced">Nozzle
           <select id="nozzle">
             <option value="0.4">0.4 mm</option>
             <option value="0.6">0.6 mm</option>
             <option value="0.2">0.2 mm</option>
           </select>
         </label>
-        <label>Print speed
+        <label class="advanced">Print speed
           <select id="print_speed">
             <!-- Generic speeds -->
             <option value="40">40 mm/s</option>
@@ -110,7 +117,7 @@
             <option value="250">250 mm/s</option>
           </select>
         </label>
-        <label>Travel speed
+        <label class="advanced">Travel speed
           <select id="travel_speed">
             <!-- Generic speeds -->
             <option value="100">100 mm/s</option>
@@ -284,6 +291,9 @@ let inventoryItems = [];
     async function fetchFromUrl(){
       const url = document.getElementById('url').value.trim();
       if(!url){ alert('Inserisci una URL'); return; }
+      // Show a loading message while fetching a remote model
+      const v = document.getElementById('viewer');
+      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello da URL...'; }
       const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
       const j = await r.json();
       if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
@@ -461,6 +471,11 @@ let inventoryItems = [];
     async function estimate(){
       if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
       if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
+      // Provide immediate feedback while the estimate is running
+      const estimateBtn = document.getElementById('btnEstimate');
+      if(estimateBtn){ estimateBtn.disabled = true; estimateBtn.textContent = 'Calcolo...'; }
+      const outEl = document.getElementById('out');
+      if(outEl){ outEl.innerHTML = 'Calcolo in corso...'; }
       const payload = {
         viewer_url: currentViewerUrl,
         inventory_key: selectedKey,
@@ -479,17 +494,37 @@ let inventoryItems = [];
       };
       const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
       const j = await r.json();
-      if(!r.ok){ alert(j.detail || 'Errore stima'); return; }
+      if(!r.ok){
+        alert(j.detail || 'Errore stima');
+        // Restore button state on error
+        if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
+        return;
+      }
       const tmin = Math.round(j.time_s/60);
       document.getElementById('out').innerHTML = `
         Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
         Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
         Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
       `;
+      // Restore button state
+      if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
     }
 
     // ---------- init ----------
-    document.getElementById('btnUpload').onclick = uploadFile;
+    // Bind file input change to automatically upload the selected file. The UI gives
+    // feedback by showing a loading message in the viewer while the upload
+    // completes.
+    const fileInputEl = document.getElementById('file');
+    fileInputEl.addEventListener('change', () => {
+      const f = fileInputEl.files && fileInputEl.files[0];
+      if(f){
+        // Show a loading message in the viewer
+        const v = document.getElementById('viewer');
+        v.classList.remove('drag');
+        v.textContent = 'Caricamento modello...';
+        uploadFileOrBlob(f);
+      }
+    });
     document.getElementById('btnFetch').onclick  = fetchFromUrl;
     document.getElementById('btnEstimate').onclick  = estimate;
     // When the preset selection changes, apply the selected preset

@@ -25,7 +25,7 @@ UPLOAD_ROOT = Path("/app/uploads")
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/files", StaticFiles(directory=str(UPLOAD_ROOT)), name="files")
 
-# ---- Utils ----
+# ---- Utils generiche ----
 def _no_cache(payload: dict):
     return JSONResponse(content=payload, headers={"Cache-Control": "no-store, max-age=0"})
 
@@ -38,10 +38,8 @@ def _get(url, params=None):
         raise HTTPException(status_code=502, detail=f"Errore contattando Spoolman: {e}")
 
 def _ensure_color_hex(v):
-    if not v:
-        return None
-    s = str(v).strip()
-    return s if s.startswith("#") else f"#{s}"
+    if not v: return None
+    return v if str(v).startswith("#") else f"#{v}"
 
 def _first(d: dict, keys):
     for k in keys:
@@ -49,7 +47,7 @@ def _first(d: dict, keys):
             return d[k]
     return None
 
-# ---- Prezzi €/kg ----
+# ---- Prezzi €/kg (server-side) da bobine ----
 def _price_per_kg_from_filament(f):
     price = _first(f, ["price"])
     weight_g = _first(f, ["weight", "weight_g"])
@@ -70,7 +68,7 @@ def _price_per_kg_from_spool(spool, filament):
             pass
     return _price_per_kg_from_filament(filament)
 
-# ---- Trasparenze ----
+# ---- Trasparente vs Bianco ----
 TRANSPARENT_PAT = re.compile(
     r"(transparent|translucent|clear|crystal|glass|natural|natura|traspar|trasluc|neutro)",
     re.I
@@ -107,7 +105,7 @@ def _extract_filament_from_spool(spool):
         if spool.get(k) is not None: legacy["weight"] = spool[k]; break
     return legacy if legacy else {}
 
-# ---- Inventario (compat vecchia UI: fornisco .color) ----
+# ---- Builder inventario (riusato da /inventory e /slice/estimate) ----
 def _build_inventory_items():
     sp = _get(f"{API_V1}/spool", params={"allow_archived": False, "limit": 1000})
     buckets = {}
@@ -129,12 +127,10 @@ def _build_inventory_items():
             b["price_per_kg"] = ppk
 
     items = []
-    for (color_hex, material, diameter, is_transparent), data in buckets.items():
-        color_hex = color_hex or "#777777"
+    for (color, material, diameter, is_transparent), data in buckets.items():
         items.append({
-            "key": f"{color_hex}|{material}|{diameter}|{'T' if is_transparent else 'N'}",
-            "color": color_hex,                # <— compat UI
-            "color_hex": color_hex,            # <— se qualcuno usa questo nome
+            "key": f"{color}|{material}|{diameter}|{'T' if is_transparent else 'N'}",
+            "color": color,
             "material": material,
             "diameter_mm": float(diameter) if diameter not in ("", "None") else None,
             "count": data["count"],
@@ -146,7 +142,72 @@ def _build_inventory_items():
         })
     return items
 
-# ---- Versione Cura ----
+# ---- Rotazioni (compat futura per Cura >=5) ----
+def _identity3():
+    return [[1,0,0],[0,1,0],[0,0,1]]
+
+def _is_3x3_numeric(M):
+    try:
+        return (
+            isinstance(M, (list, tuple)) and len(M) == 3 and
+            all(isinstance(r, (list, tuple)) and len(r) == 3 for r in M) and
+            all(all(isinstance(x, (int, float)) for x in r) for r in M)
+        )
+    except Exception:
+        return False
+
+def _deg2rad(d): return d * math.pi / 180.0
+def _matmul3(A, B):
+    return [
+        [A[0][0]*B[0][j] + A[0][1]*B[1][j] + A[0][2]*B[2][j] for j in range(3)],
+        [A[1][0]*B[0][j] + A[1][1]*B[1][j] + A[1][2]*B[2][j] for j in range(3)],
+        [A[2][0]*B[0][j] + A[2][1]*B[1][j] + A[2][2]*B[2][j] for j in range(3)],
+    ]
+def _rot_x(deg):
+    a = _deg2rad(deg); c, s = math.cos(a), math.sin(a)
+    return [[1,0,0],[0,c,-s],[0,s,c]]
+def _rot_y(deg):
+    a = _deg2rad(deg); c, s = math.cos(a), math.sin(a)
+    return [[c,0,s],[0,1,0],[-s,0,c]]
+def _rot_z(deg):
+    a = _deg2rad(deg); c, s = math.cos(a), math.sin(a)
+    return [[c,-s,0],[s,c,0],[0,0,1]]
+
+def _parse_rotation_from_settings(settings: dict):
+    M = settings.get("mesh_rotation_matrix")
+    if _is_3x3_numeric(M):
+        return M
+    e = settings.get("mesh_rotation_euler_deg")
+    if e is not None:
+        if isinstance(e, dict):
+            x = float(e.get("x", 0)); y = float(e.get("y", 0)); z = float(e.get("z", 0))
+            order = (e.get("order") or "XYZ").upper()
+        elif isinstance(e, (list, tuple)) and len(e) == 3:
+            x, y, z = map(float, e); order = (settings.get("mesh_rotation_order") or "XYZ").upper()
+        else:
+            x = y = z = 0.0; order = "XYZ"
+        R = _identity3()
+        rot_map = {"X": _rot_x, "Y": _rot_y, "Z": _rot_z}
+        angles = {"X": x, "Y": y, "Z": z}
+        for ax in order:
+            if ax in rot_map:
+                R = _matmul3(R, rot_map[ax](angles[ax]))
+        return R
+    p = settings.get("mesh_rotation_preset")
+    if isinstance(p, str) and p.strip():
+        R = _identity3()
+        for token in p.replace(" ", "").split("+"):
+            if not token: continue
+            ax = token[0].upper()
+            try: ang = float(token[1:])
+            except ValueError: ang = 0.0
+            if   ax == "X": R = _matmul3(R, _rot_x(ang))
+            elif ax == "Y": R = _matmul3(R, _rot_y(ang))
+            elif ax == "Z": R = _matmul3(R, _rot_z(ang))
+        return R
+    return _identity3()
+
+# ---- Versione Cura nel container ----
 @lru_cache()
 def _cura_version():
     try:
@@ -183,7 +244,7 @@ def spools():
     out = []
     for s in sp:
         f = _extract_filament_from_spool(s)
-        color_hex = _ensure_color_hex(_first(s, ["color_hex"]) or f.get("color_hex")) or "#777777"
+        color_hex = _ensure_color_hex(_first(s, ["color_hex"]) or f.get("color_hex"))
         is_transparent = _detect_transparent(s, f)
         price_per_kg = _price_per_kg_from_spool(s, f)
         out.append({
@@ -191,7 +252,6 @@ def spools():
             "product": f.get("name"),
             "material": f.get("material"),
             "diameter_mm": f.get("diameter"),
-            "color": color_hex,               # <— compat UI
             "color_hex": color_hex,
             "is_transparent": is_transparent,
             "color_name": "Trasparente" if is_transparent else None,
@@ -313,79 +373,94 @@ def _grams_from_length_mm(length_mm: float, diameter_mm: float, density_g_cm3: f
 def _grams_from_volume_mm3(vol_mm3: float, density_g_cm3: float):
     return (vol_mm3 / 1000.0) * density_g_cm3
 
-# Solo parsing dei commenti di Cura (no “conti strani” sugli step E)
-def _parse_cura_filament_usage(text: str):
+def _parse_cura_filament_usage(text: str, diameter_mm: float, density_g_cm3: float):
     """
-    Somma tutte le occorrenze stampate da Cura:
-      ;Filament used: 12.3mm|cm|m|g|mm3|mm^3|cm3|cm^3 (anche tra [ ])
-      ;Filament used [unit]: 12.3
-      ;Filament weight: 12.3g     | ;Filament weight [g]: 12.3
-      ;Filament (mm^3): 12345.6   | ;Material (mm^3): 12345.6
-      ;Material used [unit]: 12.3
-    Ritorna (grams, length_mm, volume_mm3) oppure None se assente.
+    Ritorna (filament_g, filament_mm).
+    Somma tutte le occorrenze trovate (multi-estrusore).
+    Supporta:
+      ;Filament used: 12.3m|mm|cm|g
+      ;Filament used [g]: 12.3
+      ;Filament used [mm^3]: 12345.6   (o [mm3], [cm^3], [cm3])
     """
     total_g = 0.0
     total_len_mm = 0.0
     total_vol_mm3 = 0.0
 
-    def add_val(val, unit):
-        nonlocal total_g, total_len_mm, total_vol_mm3
-        unit = unit.strip().lower().strip("[]").replace(" ", "")
-        if unit == "g":
+    # 1) "Filament used: <val><unit>"
+    for m in re.finditer(r";\s*Filament used\s*:\s*([\d\.]+)\s*([a-zA-Z0-9\^\[\]]+)", text, re.I):
+        val = float(m.group(1))
+        unit = m.group(2).strip().lower()
+        unit = unit.strip("[]")  # in caso sia tipo [g]
+        if unit in ("g",):
             total_g += val
-        elif unit == "mm":
+        elif unit in ("mm",):
             total_len_mm += val
-        elif unit == "cm":
+        elif unit in ("cm",):
             total_len_mm += val * 10.0
-        elif unit == "m":
+        elif unit in ("m",):
             total_len_mm += val * 1000.0
         elif unit in ("mm3", "mm^3"):
             total_vol_mm3 += val
         elif unit in ("cm3", "cm^3"):
             total_vol_mm3 += val * 1000.0
 
-    # 1) "Filament used: <val><unit>"
-    for m in re.finditer(r";\s*Filament used\s*:\s*([\d\.]+)\s*([a-zA-Z0-9\^\[\]]+)", text, re.I):
-        add_val(float(m.group(1)), m.group(2))
-
     # 2) "Filament used [unit]: <val>"
     for m in re.finditer(r";\s*Filament used\s*\[\s*([^\]]+)\s*\]\s*:\s*([\d\.]+)", text, re.I):
-        add_val(float(m.group(2)), m.group(1))
+        unit = m.group(1).strip().lower().replace(" ", "")
+        val = float(m.group(2))
+        if unit in ("g",):
+            total_g += val
+        elif unit in ("mm",):
+            total_len_mm += val
+        elif unit in ("cm",):
+            total_len_mm += val * 10.0
+        elif unit in ("m",):
+            total_len_mm += val * 1000.0
+        elif unit in ("mm3", "mm^3"):
+            total_vol_mm3 += val
+        elif unit in ("cm3", "cm^3"):
+            total_vol_mm3 += val * 1000.0
 
-    # 3) "Filament weight ..." (alcune build)
-    for m in re.finditer(r";\s*Filament weight(?:\s*\[\s*([^\]]+)\s*\])?\s*:\s*([\d\.]+)", text, re.I):
-        unit = m.group(1) or "g"
-        add_val(float(m.group(2)), unit)
-
-    # 4) "Filament (mm^3|cm^3) : <val>" e "Material (mm^3|cm^3)"
-    for m in re.finditer(r";\s*(?:Filament|Material)\s*\(\s*(mm\^?3|cm\^?3)\s*\)\s*:\s*([\d\.]+)", text, re.I):
-        unit = m.group(1).lower().replace("^","")
-        add_val(float(m.group(2)), unit)
-
-    # 5) "Material used [unit]: <val>"
+    # 3) fallback "Material used" (alcune build lo usano)
     for m in re.finditer(r";\s*Material used\s*\[\s*([^\]]+)\s*\]\s*:\s*([\d\.]+)", text, re.I):
-        add_val(float(m.group(2)), m.group(1))
+        unit = m.group(1).strip().lower().replace(" ", "")
+        val = float(m.group(2))
+        if unit in ("g",):
+            total_g += val
+        elif unit in ("mm3", "mm^3"):
+            total_vol_mm3 += val
+        elif unit in ("cm3", "cm^3"):
+            total_vol_mm3 += val * 1000.0
 
-    return (total_g or None, total_len_mm or None, total_vol_mm3 or None)
+    # Preferisci g diretto; altrimenti converti volume; altrimenti lunghezza
+    if total_g > 0:
+        return total_g, None
+    if total_vol_mm3 > 0:
+        return _grams_from_volume_mm3(total_vol_mm3, density_g_cm3), None
+    if total_len_mm > 0:
+        return None, total_len_mm
+
+    return None, None
 
 def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
                     filament_diam=1.75, travel_speed=150, print_speed=60,
                     rot_matrix=None):
     out_gcode = model_path.with_suffix(".gcode")
     if rot_matrix is None:
-        rot_matrix = [[1,0,0],[0,1,0],[0,0,1]]
+        rot_matrix = _identity3()
 
     printer_def = Path("/api/cura_defs/fdmprinter.def.json")
     extruder_def = Path("/api/cura_defs/fdmextruder.def.json")
 
     cura_args = ["CuraEngine", "slice"]
 
-    # Definitions 4.13 + commenti forzati
+    # Definitions 4.13
     if printer_def.exists():
         cura_args += ["-j", str(printer_def)]
     if extruder_def.exists():
         cura_args += ["-j", str(extruder_def)]
 
+    # Parametri in mm/s (Cura 4.x)
     cura_args += [
         "-l", str(model_path),
         "-o", str(out_gcode),
@@ -393,12 +468,11 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
         "-s", f"infill_sparse_density={infill}",
         "-s", f"machine_nozzle_size={nozzle}",
         "-s", f"material_diameter={filament_diam}",
-        "-s", "gcode_comments=true",       # <— fondamentale per far scrivere i riepiloghi
-        "-s", f"speed_travel={travel_speed}",  # mm/s in Cura 4.x
+        "-s", f"speed_travel={travel_speed}",
         "-s", f"speed_print={print_speed}",
     ]
 
-    # mesh_rotation_matrix solo da Cura 5 in su
+    # Solo Cura >=5 supporta mesh_rotation_matrix
     if _cura_supports_mesh_rotation():
         cura_args += ["-s", f"mesh_rotation_matrix={json.dumps(rot_matrix)}"]
 
@@ -408,23 +482,40 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
 
     text = out_gcode.read_text(errors="ignore")
 
-    # tempo
+    # parse tempo
     m_time = re.search(r";TIME:(\d+)", text)
     time_s = int(m_time.group(1)) if m_time else None
 
-    # consumo da commenti Cura
-    grams, length_mm, volume_mm3 = _parse_cura_filament_usage(text)
+    # parse filamento robusto (g / mm / mm^3 / cm^3)
+    filament_g, filament_mm = _parse_cura_filament_usage(
+        text=text,
+        diameter_mm=filament_diam,
+        density_g_cm3=_density_for("")  # verrà ricalcolato più avanti su materiale
+    )
 
     return {
         "time_s": time_s,
-        "filament_g": grams,
-        "filament_mm": length_mm,
-        "filament_mm3": volume_mm3,
+        "filament_mm": filament_mm,
+        "filament_g": filament_g,
         "gcode_rel": out_gcode.relative_to(UPLOAD_ROOT).as_posix()
     }
 
 @app.post("/slice/estimate")
 def slice_estimate(payload: dict = Body(...)):
+    """
+    Richiede:
+    {
+      "viewer_url": "/files/<path_relativo>",
+      "inventory_key": "<chiave di /inventory>",
+      "settings": {
+        "layer_h":0.2, "infill":15, "nozzle":0.4, "print_speed":60, "travel_speed":150,
+        # opzionali (attivi solo con Cura >=5):
+        "mesh_rotation_matrix": [[1,0,0],[0,1,0],[0,0,1]],
+        "mesh_rotation_euler_deg": {"x":90, "y":0, "z":0, "order":"XYZ"},
+        "mesh_rotation_preset": "x90+y-90"
+      }
+    }
+    """
     viewer_url = payload.get("viewer_url")
     inv_key = payload.get("inventory_key")
     settings = payload.get("settings") or {}
@@ -450,24 +541,36 @@ def slice_estimate(payload: dict = Body(...)):
     layer_h = float(settings.get("layer_h", 0.2))
     infill = float(settings.get("infill", 15))
     nozzle = float(settings.get("nozzle", 0.4))
-    print_speed = float(settings.get("print_speed", 60))
-    travel_speed = float(settings.get("travel_speed", 150))
+    print_speed = float(settings.get("print_speed", 60))    # mm/s
+    travel_speed = float(settings.get("travel_speed", 150)) # mm/s
 
     r = _run_cura_slice(
         model_path=model_path,
         layer_h=layer_h, infill=infill, nozzle=nozzle,
-        filament_diam=diam, travel_speed=travel_speed, print_speed=print_speed
+        filament_diam=diam, travel_speed=travel_speed, print_speed=print_speed,
+        rot_matrix=_parse_rotation_from_settings(settings)
     )
 
     time_s = r["time_s"] or 0
 
-    # conversioni SOLO da dati Cura
+    # Densità materiale
     density = _density_for(mat)
+
+    # Priorità: usa i grammi se presenti; altrimenti converti da volume; altrimenti da lunghezza
     filament_g = r["filament_g"]
-    if filament_g is None and r["filament_mm3"] is not None:
-        filament_g = _grams_from_volume_mm3(r["filament_mm3"], density)
-    if filament_g is None and r["filament_mm"] is not None:
-        filament_g = _grams_from_length_mm(r["filament_mm"], diam, density)
+    filament_mm = r["filament_mm"]
+
+    if filament_g is None and filament_mm is None:
+        # tentativo extra: cerca solo volume nel testo (alcune build lo mettono tardi)
+        g2, mm2 = _parse_cura_filament_usage(
+            text=(UPLOAD_ROOT / r["gcode_rel"]).read_text(errors="ignore"),
+            diameter_mm=diam, density_g_cm3=density
+        )
+        filament_g = g2 if g2 is not None else filament_g
+        filament_mm = mm2 if mm2 is not None else filament_mm
+
+    if filament_g is None and filament_mm is not None:
+        filament_g = _grams_from_length_mm(filament_mm, diam, density)
 
     if filament_g is None:
         raise HTTPException(status_code=500, detail="Impossibile leggere il consumo filamento dallo slicer")

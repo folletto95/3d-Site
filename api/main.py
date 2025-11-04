@@ -449,6 +449,69 @@ def _parse_cura_filament_usage(text: str, diameter_mm: float, density_g_cm3: flo
 
     return None, None
 
+# ---- Fallback estimator ----
+def _estimate_filament_length_from_gcode(gcode_path: Path) -> float:
+    """
+    Estimate the total extruded filament length (in millimetres) by summing E‑axis moves
+    in the G‑code.  This parser handles multi‑extruder and multi‑colour prints by
+    tracking extrusion separately per active tool (T0, T1, …).  For each tool it
+    assumes absolute extrusion mode and resets the E position on explicit resets
+    (G92 or M92 with E0).  Negative movements (retractions) and very large jumps
+    are ignored to avoid overcounting.  Returns the sum of all extruded lengths.
+    """
+    try:
+        text = gcode_path.read_text(errors="ignore")
+    except Exception:
+        return 0.0
+    # track total extrusion per tool
+    totals: dict[int, float] = {}
+    # remember last E coordinate per tool
+    last_e: dict[int, float] = {}
+    current_tool = 0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        # Skip full comment lines
+        if line.startswith(";"):
+            continue
+        # Detect tool change commands (e.g. T0, T1, T2)
+        # Only consider tool change if the line starts with 'T' followed by digits
+        if line.startswith("T") and len(line) > 1 and line[1].isdigit():
+            try:
+                current_tool = int(re.match(r"T(\d+)", line).group(1))
+            except Exception:
+                current_tool = 0
+            # Ensure structures exist for the new tool
+            totals.setdefault(current_tool, 0.0)
+            last_e.setdefault(current_tool, None)
+            continue
+        # Reset extruder position for current tool
+        # G92 E0 or M92 E0 resets the E axis
+        if ("G92" in line or "M92" in line) and (" E0" in line or " E0.0" in line):
+            last_e[current_tool] = 0.0
+            continue
+        # Find E axis value
+        m = re.search(r"E([+-]?\d*\.\d+|[+-]?\d+)", line)
+        if not m:
+            continue
+        try:
+            e_val = float(m.group(1))
+        except ValueError:
+            continue
+        # Initialise last_e for this tool if not seen before
+        if current_tool not in last_e or last_e[current_tool] is None:
+            last_e[current_tool] = e_val
+            continue
+        diff = e_val - last_e[current_tool]
+        # treat retracts or unusual jumps as zero to avoid overcounting
+        if diff < 0 or diff > 1000:
+            diff = 0.0
+        totals[current_tool] = totals.get(current_tool, 0.0) + diff
+        last_e[current_tool] = e_val
+    # Sum across all tools
+    return sum(totals.values())
+
 def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
                     filament_diam=1.75, travel_speed=150, print_speed=60,
                     rot_matrix=None):
@@ -580,7 +643,17 @@ def slice_estimate(payload: dict = Body(...)):
         filament_g = _grams_from_length_mm(filament_mm, diam, density)
 
     if filament_g is None:
-        raise HTTPException(status_code=500, detail="Impossibile leggere il consumo filamento dallo slicer")
+        # Attempt a more expensive fallback by summing E‑axis moves in the generated G‑code.
+        # This covers cases where CuraEngine omits the "Filament used" comments entirely.
+        try:
+            gcode_path = UPLOAD_ROOT / r["gcode_rel"]
+            est_len_mm = _estimate_filament_length_from_gcode(gcode_path)
+        except Exception:
+            est_len_mm = 0.0
+        if est_len_mm > 0:
+            filament_g = _grams_from_length_mm(est_len_mm, diam, density)
+        if filament_g is None:
+            raise HTTPException(status_code=500, detail="Impossibile leggere il consumo filamento dallo slicer")
 
     cost_filament = (filament_g/1000.0) * float(price_per_kg)
     cost_machine  = (time_s/3600.0) * HOURLY_RATE

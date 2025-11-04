@@ -7,9 +7,15 @@ services:
     ports:
       - "8088:8080"
     environment:
-      - SPOOLMAN_URL=http://192.168.10.164:7912
-      - HOURLY_RATE=1
-      - CURRENCY=EUR
+      - SPOOLMAN_URL=${SPOOLMAN_URL:-http://192.168.10.164:7912}
+      - HOURLY_RATE=${HOURLY_RATE:-1}
+      - CURRENCY=${CURRENCY:-EUR}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-100}
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./web:/app/web:ro
       - ./uploads:/app/uploads

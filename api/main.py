@@ -16,6 +16,13 @@ app.add_middleware(
 )
 
 # ---- Config ----
+#
+# Spoolsite needs to communicate with Spoolman to read filament inventory.  When run via
+# docker‑compose the `SPOOLMAN_URL` environment variable should be set to the container
+# hostname (e.g. "http://spoolman:7912").  However, when running this API outside of
+# docker on a local network we fall back to the original hard‑coded IP address.  This
+# ensures that existing installs continue to reach the user's Spoolman instance without
+# requiring changes to environment variables.  See README for details.
 SPOOLMAN_BASE = os.getenv("SPOOLMAN_URL", "http://192.168.10.164:7912").rstrip("/")
 API_V1 = f"{SPOOLMAN_BASE}/api/v1"
 CURRENCY = os.getenv("CURRENCY", "EUR")

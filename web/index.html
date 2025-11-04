@@ -173,7 +173,20 @@ let inventoryItems = [];
           row.setAttribute('role','option');
           row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
           row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
-          row.onclick = ()=>{ selectedKey = it.key; [...box.children].forEach(c=>c.setAttribute('aria-selected','false')); row.setAttribute('aria-selected','true'); };
+      row.onclick = () => {
+        // Update the currently selected key and visual selection state
+        selectedKey = it.key;
+        [...box.children].forEach(c => c.setAttribute('aria-selected', 'false'));
+        row.setAttribute('aria-selected', 'true');
+        // If a model is already loaded in the viewer, reload it to apply the new colour.
+        // The currentViewerUrl global holds the last loaded path and window.__lastModelName stores the original filename.
+        if (currentViewerUrl) {
+          // Use a brief timeout to allow the selection UI to update before re-rendering
+          setTimeout(() => {
+            showViewer(currentViewerUrl, window.__lastModelName || null);
+          }, 0);
+        }
+      };
 
           const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
@@ -240,6 +253,8 @@ let inventoryItems = [];
      */
     async function showViewer(path, name){
       currentViewerUrl = path;
+      // Store the last loaded filename globally so that switching filament colours can reload the model
+      window.__lastModelName = name;
       const viewer = document.getElementById('viewer');
       // Remove any previous content and reset drag styling
       viewer.innerHTML = '';

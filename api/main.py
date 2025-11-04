@@ -743,15 +743,29 @@ def slice_estimate(payload: dict = Body(...)):
         machine=machine
     )
 
-    # Compute time from CuraEngine or fall back to our estimator.  If CuraEngine
-    # provided a valid TIME comment (>0), use it; otherwise approximate print
-    # time by summing XYZ movements in the generated G‑code.  This yields
-    # variable times across models instead of a constant placeholder.
-    time_s = r["time_s"] if r.get("time_s") else None
-    if not time_s:
+    #
+    # Compute the print time using our own estimator rather than blindly
+    # trusting the `;TIME:` comment that CuraEngine writes.  In practice
+    # CuraEngine 4.x often returns a constant time (e.g. 111 min) for a
+    # wide range of models, which misleads users.  To provide more
+    # realistic estimates we always analyse the generated G‑code and
+    # approximate the print time by summing the distances for print
+    # and travel moves and dividing by the speeds from the preset.
+    # Only if the estimator yields zero (e.g. because of a parsing error)
+    # do we fall back to CuraEngine's time comment.  This way the
+    # returned time varies with model complexity and preset.
+    time_s = None
+    try:
         gcode_path = UPLOAD_ROOT / r["gcode_rel"]
-        time_est = _estimate_print_time_from_gcode(gcode_path, print_speed, travel_speed)
-        time_s = int(time_est) if time_est > 0 else 0
+        est = _estimate_print_time_from_gcode(gcode_path, print_speed, travel_speed)
+        if est > 0:
+            time_s = int(est)
+    except Exception:
+        time_s = None
+    if time_s is None or time_s == 0:
+        # Use CuraEngine's time if available and non‑zero, otherwise zero
+        ce_time = r.get("time_s")
+        time_s = int(ce_time) if ce_time else 0
 
     # Densità materiale
     density = _density_for(mat)

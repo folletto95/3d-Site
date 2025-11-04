@@ -354,11 +354,34 @@ let inventoryItems = [];
 
     // drag & drop
     const viewer = document.getElementById('viewer');
-    viewer.addEventListener('dragover', e => { e.preventDefault(); viewer.classList.add('drag'); });
-    viewer.addEventListener('dragleave', () => viewer.classList.remove('drag'));
+    // Support drag enter/over/leave/drop.  Dragging a file over the viewer
+    // highlights the drop zone, and dropping a file triggers upload.
+    viewer.addEventListener('dragenter', e => {
+      e.preventDefault();
+      viewer.classList.add('drag');
+    });
+    viewer.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      viewer.classList.add('drag');
+    });
+    viewer.addEventListener('dragleave', e => {
+      // Only remove highlight if leaving the drop zone
+      if(!viewer.contains(e.relatedTarget)){
+        viewer.classList.remove('drag');
+      }
+    });
     viewer.addEventListener('drop', e => {
-      e.preventDefault(); viewer.classList.remove('drag');
+      e.preventDefault();
+      viewer.classList.remove('drag');
       const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ uploadFileOrBlob(f); }
+    });
+
+    // When a user selects a file via the file input, immediately upload it.
+    const fileInput = document.getElementById('file');
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files && fileInput.files[0];
       if(f){ uploadFileOrBlob(f); }
     });
 

@@ -459,15 +459,29 @@
           controls.update();
           renderer.render(scene, camera);
         })();
+      
       }, undefined, (error) => {
         console.error('Errore nel caricamento del modello 3D:', error);
-        // Fallback: se era un 3MF, prova a caricare lo STL convertito
+
+        // Fallback: se era un 3MF, prova a caricare lo STL convertito (con cache-busting)
         if (extMatch === '3mf') {
-          const stlPath = path.replace(/\.3mf(\?.*)?$/i, '.stl$1');
-          fetch(stlPath, { method: 'HEAD' }).then(r => {
-            if (!r.ok) throw new Error('STL non trovato');
-            const stlLoader = new THREE.STLLoader();
-            stlLoader.load(encodeURI(stlPath), (geom) => {
+          let stlPath = path.replace(/\.3mf(\?.*)?$/i, '.stl$1');
+          const bust = (stlPath.includes('?') ? '&' : '?') + 'nocache=' + Date.now();
+          stlPath += bust;
+
+          fetch(stlPath, { method: 'GET' })
+            .then(async (r) => {
+              if (!r.ok) throw new Error('STL non trovato: ' + r.status);
+              const ct = r.headers.get('content-type') || '';
+              const buf = await r.arrayBuffer();
+              // Se riceviamo HTML o un buffer troppo corto, consideriamo lo STL invalido
+              if (ct.includes('text/html') || buf.byteLength < 84) {
+                throw new Error('STL non valido o troppo corto (' + buf.byteLength + ' B)');
+              }
+              const stlLoader = new THREE.STLLoader();
+              const geom = stlLoader.parse(buf);
+
+              // Materiale/centro come nel ramo STL standard
               const sel = inventoryItems.find(x => x.key === selectedKey) || {};
               let hex = sel.color || '#aaaaaa';
               if (!hex.startsWith('#')) hex = '#' + hex;
@@ -485,26 +499,25 @@
               const center = box.getCenter(new THREE.Vector3());
               const maxDim = Math.max(size.x, size.y, size.z) || 1;
               const fov = camera.fov * (Math.PI / 180);
-              let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+              const cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
               camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
               camera.near = Math.max(0.001, maxDim / 100);
               camera.far  = Math.max(10,    maxDim * 100);
               camera.updateProjectionMatrix();
               controls.target.copy(center);
               controls.update();
-            }, undefined, (e2) => {
+            })
+            .catch((e2) => {
+              console.error('Fallback STL fallito:', e2);
               const link = encodeURI(path);
               viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
             });
-          }).catch(() => {
-            const link = encodeURI(path);
-            viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
-          });
         } else {
           const link = encodeURI(path);
           viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
         }
       });
+
 
       document.getElementById('out').innerHTML = '';
     }

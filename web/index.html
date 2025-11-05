@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Magazzino Filamenti & Stima</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧵</text></svg>">
   <style>
     :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
@@ -43,6 +44,33 @@
     .out b{color:var(--accent);font-size:20px}
     .advanced { display: none; }
   </style>
+
+  <!-- Import map per Three r160+ (DEVE stare nel <head> prima dei moduli) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- Modulo collante: importa i JSM moderni e li riallaccia a window.THREE -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader }     from 'three/addons/loaders/STLLoader.js';
+    import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
+    import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+
+    window.THREE = THREE;
+    window.THREE.OrbitControls = OrbitControls;
+    window.THREE.STLLoader     = STLLoader;
+    window.THREE.OBJLoader     = OBJLoader;
+    window.THREE.ThreeMFLoader = ThreeMFLoader;
+
+    console.log('Three r'+THREE.REVISION, 'Orbit?', !!OrbitControls, 'STL?', !!STLLoader);
+  </script>
 </head>
 <body>
   <div class="wrap">
@@ -367,7 +395,7 @@
       renderer.setSize(width, height);
       canvas.appendChild(renderer.domElement);
 
-      // ✅ FIX: usare THREE.OrbitControls
+      // Usa i controlli dal namespace THREE (moduli jsm riallacciati)
       const controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.1;
@@ -503,15 +531,6 @@
     if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; }; }
     if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
   </script>
-  <!-- Librerie globali (UMD) da CDN: niente importmap, niente ES modules -->
-  <script src="/web/js/libs/fflate.min.js"></script>
-  <script src="/web/js/libs/three.min.js"></script>
-  <script src="/web/js/libs/OrbitControls.js"></script>
-  <script src="/web/js/libs/STLLoader.js"></script>
-  <script src="/web/js/libs/OBJLoader.js"></script>
-  <script src="/web/js/libs/3MFLoader.js"></script>
-  <!-- Fflate UMD (facoltativo; i jsm usano già fflate.module.js) -->
-  <script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
 
 </body>
 </html>

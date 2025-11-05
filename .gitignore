@@ -4,6 +4,7 @@
 *.tmp
 *.swp
 *.swo
+.tar.zst
 
 # Python
 __pycache__/

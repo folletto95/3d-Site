@@ -56,21 +56,24 @@
   </script>
 
   <!-- Modulo collante: importa i JSM moderni e li riallaccia a window.THREE -->
-  <script type="module">
-    import * as THREE from 'three';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { STLLoader }     from 'three/addons/loaders/STLLoader.js';
-    import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
-    import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+<script type="module">
+  import * as THREE_NS from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+  import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+  import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
 
-    window.THREE = THREE;
-    window.THREE.OrbitControls = OrbitControls;
-    window.THREE.STLLoader     = STLLoader;
-    window.THREE.OBJLoader     = OBJLoader;
-    window.THREE.ThreeMFLoader = ThreeMFLoader;
+  // Creiamo un NUOVO oggetto estendibile con tutte le cose di THREE
+  window.THREE = {
+    ...THREE_NS,
+    OrbitControls,
+    STLLoader,
+    OBJLoader,
+    ThreeMFLoader,
+  };
 
-    console.log('Three r'+THREE.REVISION, 'Orbit?', !!OrbitControls, 'STL?', !!STLLoader);
-  </script>
+  console.log('Three r' + window.THREE.REVISION, 'addons ok:', !!window.THREE.STLLoader);
+</script>
 </head>
 <body>
   <div class="wrap">

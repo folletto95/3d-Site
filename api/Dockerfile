@@ -5,15 +5,19 @@ FROM python:3.11-slim-bookworm
 WORKDIR /api
 
 # Dipendenze di sistema: cura-engine 4.x, git, curl
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    cura-engine \
-    git \
-    curl \
-    ca-certificates \
-    assimp-utils \
- && rm -rf /var/lib/apt/lists/*
-
-# Requisiti Python
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libglu1-mesa \
+        libgtk-3-0 \
+        libxrender1 \
+        libxi6 \
+        libxext6 \
+        libx11-6 \
+        libxcb1 \
+        libxfixes3 \
+    && rm -rf /var/lib/apt/lists/*# Requisiti Python
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

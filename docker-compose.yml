@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: ./api/Dockerfile
+      args:
+        PRUSA_URL: "https://github.com/prusa3d/PrusaSlicer/releases/download/v2.7.4/PrusaSlicer-2.7.4+linux-x64-GTK3-202405130813.AppImage"
     ports:
       - "8088:8080"
     environment:

@@ -180,19 +180,6 @@
       <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
     </div>
   </div>
-
-  <!-- Load Three.js and loaders as global scripts.  The examples
-       attach themselves to the global `THREE` object rather than
-       exporting ES modules, so they work without dynamic import.
-       We also load fflate and the 3MF loader for 3MF files. -->
-  <!-- Fflate: locale con fallback a unpkg -->
-  <script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/STLLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/OBJLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/3MFLoader.js"></script>
-
   <script>
     // ---------- util colore ----------
     function hexToRgb(hex){
@@ -659,5 +646,32 @@ let inventoryItems = [];
       wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; };
     }
   </script>
+
+  <!-- Three.js modern: import ES modules e riallega sul globale per il codice esistente -->
+  <script type="module">
+    // Import ES modules
+    import * as THREE_mod from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+    import { OrbitControls as OrbitControls_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+    import { STLLoader as STLLoader_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/STLLoader.js";
+    import { OBJLoader as OBJLoader_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/OBJLoader.js";
+    import { ThreeMFLoader as ThreeMFLoader_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/3MFLoader.js";
+
+    // Espone sul globale per il tuo showViewer() che si aspetta window.THREE.* 
+    window.THREE = THREE_mod;
+    // NB: i controlli nelle jsm sono classi, le assegnamo su THREE per compatibilità
+    window.THREE.OrbitControls = OrbitControls_mod;
+    window.THREE.STLLoader = STLLoader_mod;
+    window.THREE.OBJLoader = OBJLoader_mod;
+    window.THREE.ThreeMFLoader = ThreeMFLoader_mod;
+
+    // (opzionale) log rapido per verificare
+    console.log("THREE r", window.THREE.REVISION,
+                "Orbit?", !!window.THREE.OrbitControls,
+                "STL?", !!window.THREE.STLLoader);
+  </script>
+
+  <!-- Fflate (serve solo per 3MF zip): va bene la UMD dal CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
+
 </body>
 </html>

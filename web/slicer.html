@@ -15,10 +15,31 @@
     pre{background:#fff;padding:8px;border:1px solid #ddd;white-space:pre-wrap}
     .small{font-size:12px;color:#555}
   </style>
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/STLLoader.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/OBJLoader.js"></script>
+
+  <!-- Import map per Three r160+ -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+
+  <!-- Collante: carico i JSM e li espongo su window.THREE per compatibilità -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader }     from 'three/addons/loaders/STLLoader.js';
+    import { OBJLoader }     from 'three/addons/loaders/OBJLoader.js';
+    window.THREE = THREE;
+    window.THREE.OrbitControls = OrbitControls;
+    window.THREE.STLLoader     = STLLoader;
+    window.THREE.OBJLoader     = OBJLoader;
+    console.log('slicer: Three r'+THREE.REVISION);
+  </script>
+
 </head>
 <body>
   <div id="viewer"></div>

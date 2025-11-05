@@ -8,6 +8,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
+import subprocess, unicodedata
+from fastapi import HTTPException
+
+def slugify_filename(name: str) -> str:
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    name = re.sub(r"[^\w.\-]+", "_", name).strip("._")
+    return name or "file"
+
+def is_valid_stl(p: Path) -> bool:
+    try:
+        return p.exists() and p.stat().st_size >= 84
+    except Exception:
+        return False
+
+def prusa_export_stl(in_path: Path, export_dir: Path) -> Path:
+    export_dir.mkdir(parents=True, exist_ok=True)
+    cmd = ["prusaslicer", "--export-stl", "--output", str(export_dir), str(in_path)]
+    cp = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if cp.returncode != 0:
+        print("[PrusaSlicer] ERRORE:\n", cp.stdout)
+        raise HTTPException(status_code=400, detail="Conversione 3MF→STL fallita (PrusaSlicer)")
+    stls = sorted(export_dir.glob("*.stl"), key=lambda p: p.stat().st_size if p.exists() else 0, reverse=True)
+    if not stls:
+        raise HTTPException(status_code=400, detail="Nessuno STL prodotto da PrusaSlicer")
+    best = stls[0]
+    if not is_valid_stl(best):
+        raise HTTPException(status_code=400, detail="STL troppo corto prodotto da PrusaSlicer")
+    return best
+
 app = FastAPI(title="Spoolsite API")
 
 app.add_middleware(
@@ -282,7 +311,7 @@ def inventory():
 # ---- Upload / Download modelli ----
 # Extend supported extensions beyond the default Cura ones.  CuraEngine only
 # natively slices STL/OBJ/3MF, but we can transparently convert other formats
-# (such as STEP or STP) to STL via the `assimp` utility if it is available.
+# (such as STEP or STP) to STL via the `assimp_disabled` utility if it is available.
 ALLOWED_EXT = {".stl", ".obj", ".3mf", ".zip", ".step", ".stp"}
 
 def _find_model_in_dir(root: Path):
@@ -318,21 +347,16 @@ async def upload_model(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="ZIP senza STL/OBJ/3MF/STEP")
         model_path = m
 
-    # Convert STEP/STP/3MF to STL for preview using assimp, if available.  This
+    # Convert STEP/STP/3MF to STL for preview using assimp_disabled, if available.  This
     # ensures that even unsupported formats can be rendered in the browser.  The
     # converted file is stored alongside the original and used as the viewer
     # source; slicing will operate on this STL as well.
     viewer_model_path = model_path
     try:
         suffix = model_path.suffix.lower()
-        if suffix in {".step", ".stp", ".3mf"}:
-            conv_path = model_path.with_suffix(".stl")
-            # use assimp to convert; ignore errors silently
-            subprocess.run([
-                "assimp", "export", str(model_path), str(conv_path), "-f", "stl"
-            ], check=True, timeout=60)
-            if conv_path.exists():
-                viewer_model_path = conv_path
+        if suffix in {".step", ".stp", ".3mf", ".amf", ".obj"}:
+            export_dir = model_path.parent / "ps_export"
+            viewer_model_path = prusa_export_stl(model_path, export_dir)
     except Exception:
         # ignore conversion errors; preview will use the original path
         viewer_model_path = model_path
@@ -386,7 +410,7 @@ def fetch_model(payload: dict = Body(...)):
             if suffix in {".step", ".stp", ".3mf"}:
                 conv_path = model_path.with_suffix(".stl")
                 subprocess.run([
-                    "assimp", "export", str(model_path), str(conv_path), "-f", "stl"
+                    "assimp_disabled", "export", str(model_path), str(conv_path), "-f", "stl"
                 ], check=True, timeout=60)
                 if conv_path.exists():
                     viewer_model_path = conv_path
@@ -681,29 +705,29 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
     #
     # CuraEngine (4.x) only accepts STL, OBJ and 3MF files as input.  To
     # support STEP/STP and better handle 3MF files that Cura fails to open,
-    # we attempt to convert unsupported formats to STL using the `assimp`
+    # we attempt to convert unsupported formats to STL using the `assimp_disabled`
     # command‑line tool.  If the conversion succeeds the sliced model
     # operates on the resulting STL; otherwise we fall back to the original
     # file path (which will likely trigger a CuraEngine error).
     #
     ext = model_path.suffix.lower()
     model_to_slice = model_path
-    # Convert STEP and STP formats (and optionally 3MF) using assimp if available
+    # Convert STEP and STP formats (and optionally 3MF) using assimp_disabled if available
     if ext in {".step", ".stp", ".3mf"}:
         # Construct a deterministic path alongside the original model
         conv_path = model_path.with_suffix(".stl")
         try:
-            # Use assimp export to convert the model.  The '-f stl' option
+            # Use assimp_disabled export to convert the model.  The '-f stl' option
             # explicitly sets the output format.  Conversion failures will
             # raise CalledProcessError which we silently ignore (the
             # original file will be passed to CuraEngine).
             subprocess.run([
-                "assimp", "export", str(model_path), str(conv_path), "-f", "stl"
+                "assimp_disabled", "export", str(model_path), str(conv_path), "-f", "stl"
             ], check=True, timeout=60)
             if conv_path.exists():
                 model_to_slice = conv_path
         except Exception:
-            # If assimp isn't installed or conversion fails leave
+            # If assimp_disabled isn't installed or conversion fails leave
             # `model_to_slice` unchanged.  The CuraEngine call will then
             # propagate an error to the user.
             model_to_slice = model_path

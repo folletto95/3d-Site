@@ -13,8 +13,6 @@
     .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
     h1{margin:0 0 12px;font-size:28px}
     h2{margin:0 0 12px;font-size:18px}
-    /* Compact the palette slightly by reducing gaps and paddings. Lower the max height so more of the page is
-       available for the estimate section. */
     .palette{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;padding-right:6px}
     .pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;font-size:14px}
     .pill[aria-selected="true"]{outline:2px solid var(--accent)}
@@ -41,17 +39,9 @@
     .viewer.drag{border-color:var(--accent); color:var(--accent)}
     .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
     @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
-    /* Increase the visibility of the estimate output by enlarging the font and adding spacing */
-    .out{margin-top:16px;font-size:16px;line-height:1.4}
     .out{margin-top:20px;font-size:18px;line-height:1.5;background:#0b1527;padding:12px;border-radius:10px;color:var(--text)}
     .out b{color:var(--accent);font-size:20px}
-
-    /* Hide advanced printing parameters when presets are used. The values still exist in the DOM
-       so that they can be updated programmatically and sent to the server, but they are not
-       visible to the user. */
-    .advanced {
-      display: none;
-    }
+    .advanced { display: none; }
   </style>
 </head>
 <body>
@@ -62,7 +52,6 @@
     <div class="grid">
       <div class="card">
         <h2>Palette (seleziona materiale)</h2>
-        <!-- Filtro per la palette: permette di cercare per materiale o colore -->
         <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%; box-sizing:border-box" oninput="filterPalette()" />
         <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
         <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
@@ -77,10 +66,7 @@
     <div class="card" style="margin-top:18px">
       <h2>File & Stima</h2>
       <div class="row" style="flex-wrap:wrap">
-        <!-- Include STEP/STP in accepted file types.  These will be
-             automatically converted to STL via assimp on the server for slicing. -->
         <input id="file" type="file" accept=".stl,.obj,.3mf,.zip,.step,.stp" multiple />
-        <!-- Rimuoviamo il pulsante di caricamento: il file viene caricato appena selezionato -->
         <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
         <button id="btnFetch">Da URL</button>
         <button id="btnDelete" style="margin-left:8px">Elimina</button>
@@ -112,11 +98,9 @@
         </label>
         <label class="advanced">Print speed
           <select id="print_speed">
-            <!-- Generic speeds -->
             <option value="40">40 mm/s</option>
             <option value="60" selected>60 mm/s</option>
             <option value="80">80 mm/s</option>
-            <!-- Higher speeds for fast machines like Bambu X1C -->
             <option value="100">100 mm/s</option>
             <option value="160">160 mm/s</option>
             <option value="200">200 mm/s</option>
@@ -125,22 +109,15 @@
         </label>
         <label class="advanced">Travel speed
           <select id="travel_speed">
-            <!-- Generic speeds -->
             <option value="100">100 mm/s</option>
             <option value="150" selected>150 mm/s</option>
             <option value="200">200 mm/s</option>
-            <!-- Higher speeds for fast machines -->
             <option value="300">300 mm/s</option>
             <option value="500">500 mm/s</option>
           </select>
         </label>
-        <!-- Introduce a preset selector to quickly apply common profiles. Each preset sets
-             layer height, infill percentage, nozzle diameter, print speed, travel speed
-             and the target machine (generic FDM or Bambu X1C). Users can still tweak the
-             values manually after choosing a preset. -->
         <label>Preset
           <select id="preset">
-            <!-- Il primo preset selezionato è lo standard: gli utenti vedranno una stima subito usando questo profilo -->
             <option value="x1c_standard_020" selected>Standard</option>
             <optgroup label="Bambu X1C">
               <option value="x1c_standard_020">0.20 Standard</option>
@@ -161,11 +138,9 @@
       <div id="out" class="out"></div>
     </div>
   </div>
-  <!-- Pulsante per aprire la guida/tutorial.  Posizioniamo l'icona in alto a destra -->
+
   <button id="btnWizard" title="Apri guida" style="position:fixed;top:16px;right:16px;background:var(--card);border:1px solid var(--ring);color:var(--accent);padding:8px 12px;border-radius:12px;font-size:14px;z-index:1000;cursor:pointer">Guida</button>
 
-  <!-- Overlay del wizard/tutorial.  Inizialmente nascosto, copre l'intera pagina con un
-       fondo semitrasparente e una scatola di istruzioni. -->
   <div id="wizard" class="wizard-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:999;">
     <div class="wizard-box" style="max-width:600px;margin:10% auto;background:var(--card);color:var(--text);padding:24px;border-radius:16px;box-shadow:0 0 12px rgba(0,0,0,0.5);">
       <h2 style="margin-top:0">Benvenuto!</h2>
@@ -174,12 +149,13 @@
         <li><b>Scegli un materiale:</b> usa il filtro per cercare per nome o colore e seleziona una riga dalla palette a sinistra.</li>
         <li><b>Carica il modello:</b> trascina un file STL/3MF/OBJ nella casella del viewer o clicca sul campo per selezionarlo.</li>
         <li><b>Scegli un preset:</b> il menu a tendina propone profili per la Bambu X1C; la voce "Standard" è la più comune.</li>
-        <li><b>Calcola la stima:</b> premi <em>Stima</em> per generare il G‑code, stimare tempo e costi e scaricare il file.</li>
+        <li><b>Calcola la stima:</b> premi <em>Stima</em> per generare il G-code, stimare tempo e costi e scaricare il file.</li>
         <li><b>Visualizza i risultati:</b> nella sezione "Tempo, Filamento, Costo" appariranno le stime dettagliate.</li>
       </ol>
       <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
     </div>
   </div>
+
   <script>
     // ---------- util colore ----------
     function hexToRgb(hex){
@@ -203,38 +179,25 @@
     }
 
     // ---------- stato ----------
-let selectedKey = null;
-let currentViewerUrl = null;
-// Track which machine (generic or bambu_x1c) should be used when estimating
-let selectedMachine = "generic";
-// Hold the most recent inventory items fetched from the server.
-// Each element includes keys such as `key`, `color`, `material`, `diameter_mm`, `price_per_kg` and `is_transparent`.
-// This cache is used later to apply the selected filament colour to the 3D model
-// and to lookup the current selection for estimating costs.
-let inventoryItems = [];
+    let selectedKey = null;
+    let currentViewerUrl = null;
+    let selectedMachine = "generic";
+    let inventoryItems = [];
     const REFRESH_MS = 60000; // 60 s
 
     // ---------- palette ----------
     async function loadPalette(){
       const res = await fetch('/inventory?nocache='+Date.now());
       const data = await res.json();
-  // Cache the items globally so other functions (e.g. showViewer) can access details
-  inventoryItems = Array.isArray(data.items) ? data.items : [];
+      inventoryItems = Array.isArray(data.items) ? data.items : [];
       renderPalette(data.items || []);
     }
 
-    // Filter the palette based on the text typed into the paletteFilter input.  When the
-    // filter is empty the entire inventory is shown; otherwise only items whose
-    // material or colour name matches the search term (case‑insensitive) are rendered.
     function filterPalette(){
       const term = (document.getElementById('paletteFilter').value || '').trim().toLowerCase();
-      if(!term){
-        renderPalette(inventoryItems);
-        return;
-      }
+      if(!term){ renderPalette(inventoryItems); return; }
       const filtered = inventoryItems.filter(it => {
         const mat = (it.material || '').toLowerCase();
-        // Determine a colour name for matching; fall back to nearest basic if necessary
         const colorName = (it.color_name || nearestBasicName(it.color || '#777777') || '').toLowerCase();
         return mat.includes(term) || colorName.includes(term);
       });
@@ -242,36 +205,25 @@ let inventoryItems = [];
     }
 
     // ---------- preset handling ----------
-    // Predefined printing presets. Each preset defines the machine to use and
-    // suggested values for layer height (mm), infill (%), nozzle (mm),
-    // print speed (mm/s) and travel speed (mm/s). Users can further tweak
-    // individual settings after selecting a preset.
     const PRESETS = {
-      // Generic fallback preset.  If not specified the machine defaults to generic FDM.
       "": { machine: "generic", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 60, travel_speed: 150 },
-      // Bambu Lab X1C presets approximated from typical manufacturer defaults.  These
-      // values are inspired by the X1C slicing profiles (Standard, Quality, Fine,
-      // Draft, Strength, Lightning, Ultra Fine) and may be adjusted for your
-      // specific materials.  All speeds are in mm/s.
       "x1c_standard_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
-      "x1c_quality_016": { machine: "bambu_x1c", layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
-      "x1c_fine_012":    { machine: "bambu_x1c", layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
-      "x1c_draft_028":   { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 },
-      "x1c_strength_020":{ machine: "bambu_x1c", layer_h: 0.20, infill: 50, nozzle: 0.4, print_speed: 180, travel_speed: 500 },
-      "x1c_lightning_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 10, nozzle: 0.4, print_speed: 300, travel_speed: 500 },
-      "x1c_ultrafine_008": { machine: "bambu_x1c", layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 }
+      "x1c_quality_016":  { machine: "bambu_x1c", layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
+      "x1c_fine_012":     { machine: "bambu_x1c", layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
+      "x1c_draft_028":    { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 },
+      "x1c_strength_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 50, nozzle: 0.4, print_speed: 180, travel_speed: 500 },
+      "x1c_lightning_020":{ machine: "bambu_x1c", layer_h: 0.20, infill: 10, nozzle: 0.4, print_speed: 300, travel_speed: 500 },
+      "x1c_ultrafine_008":{ machine: "bambu_x1c", layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 }
     };
 
     function applyPreset(key){
-      const preset = PRESETS[key] || PRESETS[""];
-      // Update selected machine
-      selectedMachine = preset.machine || "generic";
-      // For each setting, if defined, update the corresponding select input
-      if(preset.layer_h != null){ document.getElementById('layer_h').value = preset.layer_h.toFixed(2); }
-      if(preset.infill != null){ document.getElementById('infill').value   = preset.infill.toString(); }
-      if(preset.nozzle != null){ document.getElementById('nozzle').value   = preset.nozzle.toFixed(1); }
-      if(preset.print_speed != null){ document.getElementById('print_speed').value = preset.print_speed.toString(); }
-      if(preset.travel_speed != null){ document.getElementById('travel_speed').value = preset.travel_speed.toString(); }
+      const p = PRESETS[key] || PRESETS[""];
+      selectedMachine = p.machine || "generic";
+      if(p.layer_h!=null)      document.getElementById('layer_h').value = p.layer_h.toFixed(2);
+      if(p.infill!=null)       document.getElementById('infill').value   = String(p.infill);
+      if(p.nozzle!=null)       document.getElementById('nozzle').value   = p.nozzle.toFixed(1);
+      if(p.print_speed!=null)  document.getElementById('print_speed').value = String(p.print_speed);
+      if(p.travel_speed!=null) document.getElementById('travel_speed').value = String(p.travel_speed);
     }
 
     function renderPalette(items){
@@ -289,33 +241,24 @@ let inventoryItems = [];
           row.setAttribute('role','option');
           row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
           row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
-      row.onclick = () => {
-        // Update the currently selected key and visual selection state
-        selectedKey = it.key;
-        [...box.children].forEach(c => c.setAttribute('aria-selected', 'false'));
-        row.setAttribute('aria-selected', 'true');
-        // If a model is already loaded in the viewer, reload it to apply the new colour.
-        // The currentViewerUrl global holds the last loaded path and window.__lastModelName stores the original filename.
-        if (currentViewerUrl) {
-          // Use a brief timeout to allow the selection UI to update before re-rendering
-          setTimeout(() => {
-            showViewer(currentViewerUrl, window.__lastModelName || null);
-          }, 0);
-        }
-      };
+          row.onclick = () => {
+            selectedKey = it.key;
+            [...box.children].forEach(c => c.setAttribute('aria-selected', 'false'));
+            row.setAttribute('aria-selected', 'true');
+            if (currentViewerUrl) {
+              setTimeout(() => { showViewer(currentViewerUrl, window.__lastModelName || null); }, 0);
+            }
+          };
 
           const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
           if(!it.is_transparent){ dot.style.backgroundColor = hex; }
-          // Show only the human-friendly name in the tooltip (no HEX value)
           dot.title = colorName;
           dot.setAttribute('aria-hidden','true');
 
           const col = document.createElement('div');
           const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
-          const t2 = document.createElement('div'); t2.className='sub';
-          // Display only the color name without its hex code in the palette
-          t2.textContent = colorName;
+          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = colorName;
           col.appendChild(t1); col.appendChild(t2);
 
           left.appendChild(dot); left.appendChild(col);
@@ -328,7 +271,6 @@ let inventoryItems = [];
 
     // ---------- upload / fetch ----------
     async function uploadFileOrBlob(file){
-      // Show loading message
       const v = document.getElementById('viewer');
       if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello…'; }
       const fd = new FormData(); fd.append('file', file);
@@ -338,16 +280,9 @@ let inventoryItems = [];
       showViewer(j.viewer_url, j.filename);
     }
 
-    async function uploadFile(){
-      const f = document.getElementById('file').files[0];
-      if(!f){ alert('Seleziona un file'); return; }
-      uploadFileOrBlob(f);
-    }
-
     async function fetchFromUrl(){
       const url = document.getElementById('url').value.trim();
       if(!url){ alert('Inserisci una URL'); return; }
-      // Show a loading message while fetching a remote model
       const v = document.getElementById('viewer');
       if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello da URL...'; }
       const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
@@ -355,89 +290,53 @@ let inventoryItems = [];
       if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
     }
 
-    // drag & drop
     const viewer = document.getElementById('viewer');
-    // Support drag enter/over/leave/drop.  Dragging a file over the viewer
-    // highlights the drop zone, and dropping a file triggers upload.
-    viewer.addEventListener('dragenter', e => {
-      e.preventDefault();
-      viewer.classList.add('drag');
-    });
-    viewer.addEventListener('dragover', e => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      viewer.classList.add('drag');
-    });
-    viewer.addEventListener('dragleave', e => {
-      // Only remove highlight if leaving the drop zone
-      if(!viewer.contains(e.relatedTarget)){
-        viewer.classList.remove('drag');
-      }
-    });
-    viewer.addEventListener('drop', e => {
-      e.preventDefault();
-      viewer.classList.remove('drag');
+    viewer.addEventListener('dragenter', e => { e.preventDefault(); viewer.classList.add('drag'); });
+    viewer.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect='copy'; viewer.classList.add('drag'); });
+    viewer.addEventListener('dragleave', e => { if(!viewer.contains(e.relatedTarget)) viewer.classList.remove('drag'); });
+    viewer.addEventListener('drop',      e => {
+      e.preventDefault(); viewer.classList.remove('drag');
       const f = e.dataTransfer.files && e.dataTransfer.files[0];
       if(f){ uploadFileOrBlob(f); }
     });
 
-    // When a user selects a file via the file input, immediately upload it.
     const fileInput = document.getElementById('file');
     fileInput.addEventListener('change', () => {
-      const files = fileInput.files;
-      if(!files || files.length === 0) return;
-      // Support multiple uploads: iterate over selected files
-      for(const f of files){
-        if(f){ uploadFileOrBlob(f); }
-      }
-      // Reset the input so the same file can be selected again later
+      const files = fileInput.files; if(!files || !files.length) return;
+      for(const f of files){ if(f) uploadFileOrBlob(f); }
       fileInput.value = '';
     });
 
-    // Allow clearing the current model and estimate output
     const btnDelete = document.getElementById('btnDelete');
     btnDelete.addEventListener('click', () => {
-      // Reset viewer content
       const v = document.getElementById('viewer');
       v.innerHTML = 'Trascina qui un file o caricalo dal pulsante sotto.';
       v.classList.remove('drag');
-      // Reset global state
       window.__lastModelName = null;
       currentViewerUrl = null;
-      // Clear file input and output
       fileInput.value = '';
       document.getElementById('out').innerHTML = '';
     });
 
     /**
-     * Render a 3D model in the viewer area. Supported formats are STL, OBJ and 3MF.
-     * For unsupported extensions the link to the file is shown instead.
-     *
-     * This function dynamically imports Three.js and the required loaders on first
-     * invocation. Subsequent calls reuse the cached modules to avoid
-     * additional network requests.
+     * Render 3D model
      */
     function showViewer(path, name){
       currentViewerUrl = path;
-      // Store the last loaded filename globally so that switching filament colours can reload the model
       window.__lastModelName = name;
       const viewer = document.getElementById('viewer');
-      // Remove any previous content and reset drag styling
       viewer.innerHTML = '';
       viewer.classList.remove('drag');
 
       const THREE = window.THREE;
       if(!THREE || !THREE.WebGLRenderer){
-        // If Three.js has not loaded, fall back to showing the link
         const enc = encodeURI(path);
         viewer.innerHTML = `<a href="${enc}" target="_blank" style="color:var(--accent)">${enc}</a>`;
         document.getElementById('out').innerHTML = '';
         return;
       }
 
-      // Determine which loader to use based on file extension
       const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
-      // Encode the path to handle spaces and other special characters
       const safePath = encodeURI(path);
       let loader;
       if(extMatch === 'stl' && THREE.STLLoader){
@@ -447,13 +346,11 @@ let inventoryItems = [];
       } else if(extMatch === '3mf' && THREE.ThreeMFLoader){
         loader = new THREE.ThreeMFLoader();
       } else {
-        // Unsupported extension: show a link instead of 3D preview
         viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
         document.getElementById('out').innerHTML = '';
         return;
       }
 
-      // Create renderer, scene, camera and controls
       const width = viewer.clientWidth;
       const height = viewer.clientHeight;
       const canvas = document.createElement('div');
@@ -462,90 +359,69 @@ let inventoryItems = [];
       viewer.appendChild(canvas);
 
       const scene = new THREE.Scene();
-      // Use the page's background variable for the scene background
       const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
       scene.background = new THREE.Color(bg);
       const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
       const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio || 1);
       renderer.setSize(width, height);
       canvas.appendChild(renderer.domElement);
-      const controls = new OrbitControls(camera, renderer.domElement);
+
+      // ✅ FIX: usare THREE.OrbitControls
+      const controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.1;
 
-      // Lighting
       const ambient = new THREE.AmbientLight(0xffffff, 0.6);
       scene.add(ambient);
       const directional = new THREE.DirectionalLight(0xffffff, 0.8);
       directional.position.set(3, 10, 5);
       scene.add(directional);
 
-      // Load the model
       loader.load(safePath, (result) => {
         let object;
-        // Determine the selected spool details to apply colour and transparency
         const sel = inventoryItems.find(x => x.key === selectedKey) || {};
         let hex = sel.color || '#aaaaaa';
-        // Ensure hex starts with '#'
         if(!hex.startsWith('#')) hex = '#' + hex;
         const col = new THREE.Color(hex);
         const isTransp = Boolean(sel.is_transparent);
-        // For STL, result is a geometry; wrap it in a Mesh with custom material
+
         if(extMatch === 'stl'){
           const material = new THREE.MeshStandardMaterial({
-            color: col,
-            transparent: isTransp,
-            opacity: isTransp ? 0.6 : 1.0,
-            metalness: 0.1,
-            roughness: 0.8
+            color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
+            metalness: 0.1, roughness: 0.8
           });
           object = new THREE.Mesh(result, material);
         } else {
           object = result;
-          // Traverse all child meshes and update their material colour
           object.traverse((child) => {
             if(child.isMesh){
-              // If the mesh has a material, clone it to avoid affecting shared materials
               let mat = child.material;
-              if(Array.isArray(mat)){
-                mat = mat.map(m => m.clone());
-              } else if(mat){
-                mat = mat.clone();
-              }
-              // Set colour and transparency
+              if(Array.isArray(mat)) mat = mat.map(m => m.clone());
+              else if(mat) mat = mat.clone();
               if(mat){
-                if(Array.isArray(mat)){
-                  mat.forEach(m => {
-                    m.color = col.clone();
-                    m.transparent = isTransp;
-                    m.opacity = isTransp ? 0.6 : 1.0;
-                  });
-                } else {
-                  mat.color = col.clone();
-                  mat.transparent = isTransp;
-                  mat.opacity = isTransp ? 0.6 : 1.0;
-                }
+                const apply = (m)=>{ m.color = col.clone(); m.transparent=isTransp; m.opacity=isTransp?0.6:1.0; };
+                if(Array.isArray(mat)) mat.forEach(apply); else apply(mat);
                 child.material = mat;
               }
             }
           });
         }
         scene.add(object);
-        // Center the object and adjust camera
+
         const box = new THREE.Box3().setFromObject(object);
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
-        // Compute max dimension and set camera distance accordingly
-        const maxDim = Math.max(size.x, size.y, size.z);
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
         const fov = camera.fov * (Math.PI / 180);
         let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
         camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
-        camera.near = maxDim / 100;
-        camera.far = maxDim * 100;
+        camera.near = Math.max(0.001, maxDim / 100);
+        camera.far  = Math.max(10,    maxDim * 100);
         camera.updateProjectionMatrix();
         controls.target.copy(center);
         controls.update();
-        // Animation loop
+
         (function animate(){
           requestAnimationFrame(animate);
           controls.update();
@@ -553,28 +429,24 @@ let inventoryItems = [];
         })();
       }, undefined, (error) => {
         console.error('Errore nel caricamento del modello 3D:', error);
-        // If loading fails, show the link (encode URI to avoid broken links)
         const link = encodeURI(path);
         viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
       });
-      // Clear any previous output from the stima
+
       document.getElementById('out').innerHTML = '';
     }
 
     async function estimate(){
       if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
       if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
-      // Provide immediate feedback while the estimate is running
       const estimateBtn = document.getElementById('btnEstimate');
       if(estimateBtn){ estimateBtn.disabled = true; estimateBtn.textContent = 'Calcolo...'; }
       const outEl = document.getElementById('out');
       if(outEl){ outEl.innerHTML = 'Calcolo in corso...'; }
+
       const payload = {
         viewer_url: currentViewerUrl,
         inventory_key: selectedKey,
-        // Provide the selected machine at the top-level to inform the server which
-        // printer profile to use (generic or bambu_x1c). See api/main.py for
-        // details.
         machine: selectedMachine,
         settings: {
           machine: selectedMachine,
@@ -589,7 +461,6 @@ let inventoryItems = [];
       const j = await r.json();
       if(!r.ok){
         alert(j.detail || 'Errore stima');
-        // Restore button state on error
         if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
         return;
       }
@@ -599,19 +470,13 @@ let inventoryItems = [];
         Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
         Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
       `;
-      // Restore button state
       if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
     }
 
-    // ---------- init ----------
-    // Bind file input change to automatically upload the selected file. The UI gives
-    // feedback by showing a loading message in the viewer while the upload
-    // completes.
     const fileInputEl = document.getElementById('file');
     fileInputEl.addEventListener('change', () => {
       const f = fileInputEl.files && fileInputEl.files[0];
       if(f){
-        // Show a loading message in the viewer
         const v = document.getElementById('viewer');
         v.classList.remove('drag');
         v.textContent = 'Caricamento modello...';
@@ -620,13 +485,10 @@ let inventoryItems = [];
     });
     document.getElementById('btnFetch').onclick  = fetchFromUrl;
     document.getElementById('btnEstimate').onclick  = estimate;
-    // When the preset selection changes, apply the selected preset
+
     const presetSel = document.getElementById('preset');
     if(presetSel){
       presetSel.onchange = () => applyPreset(presetSel.value);
-      // Set default preset to Standard on initial load and apply its settings
-      // (only if a preset option exists).  This ensures the user sees a sensible
-      // default without having to select it.
       if (!selectedMachine || selectedMachine === 'generic') {
         presetSel.value = 'x1c_standard_020';
         applyPreset('x1c_standard_020');
@@ -635,42 +497,42 @@ let inventoryItems = [];
     loadPalette();
     setInterval(loadPalette, REFRESH_MS);
 
-    // Wizard events: show and hide
     const wizardBtn = document.getElementById('btnWizard');
     const wizardOverlay = document.getElementById('wizard');
     const wizardClose = document.getElementById('wizardClose');
-    if(wizardBtn && wizardOverlay){
-      wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; };
-    }
-    if(wizardClose){
-      wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; };
-    }
+    if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; }; }
+    if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
   </script>
 
-  <!-- Three.js modern: import ES modules e riallega sul globale per il codice esistente -->
-  <script type="module">
-    // Import ES modules
-    import * as THREE_mod from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-    import { OrbitControls as OrbitControls_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
-    import { STLLoader as STLLoader_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/STLLoader.js";
-    import { OBJLoader as OBJLoader_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/OBJLoader.js";
-    import { ThreeMFLoader as ThreeMFLoader_mod } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/3MFLoader.js";
+  <!-- 🔧 Import Map: risolve i "bare specifiers" usati dai jsm -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
 
-    // Espone sul globale per il tuo showViewer() che si aspetta window.THREE.* 
+  <!-- Three.js via ES Modules e riallaccio su window.THREE -->
+  <script type="module">
+    import * as THREE_mod from 'three';
+    import { OrbitControls as OrbitControls_mod } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader as STLLoader_mod }       from 'three/addons/loaders/STLLoader.js';
+    import { OBJLoader as OBJLoader_mod }       from 'three/addons/loaders/OBJLoader.js';
+    import { ThreeMFLoader as ThreeMFLoader_mod } from 'three/addons/loaders/3MFLoader.js';
+
     window.THREE = THREE_mod;
-    // NB: i controlli nelle jsm sono classi, le assegnamo su THREE per compatibilità
     window.THREE.OrbitControls = OrbitControls_mod;
-    window.THREE.STLLoader = STLLoader_mod;
-    window.THREE.OBJLoader = OBJLoader_mod;
+    window.THREE.STLLoader     = STLLoader_mod;
+    window.THREE.OBJLoader     = OBJLoader_mod;
     window.THREE.ThreeMFLoader = ThreeMFLoader_mod;
 
-    // (opzionale) log rapido per verificare
-    console.log("THREE r", window.THREE.REVISION,
-                "Orbit?", !!window.THREE.OrbitControls,
-                "STL?", !!window.THREE.STLLoader);
+    console.log("THREE r", THREE_mod.REVISION, "Orbit?", !!window.THREE.OrbitControls, "STL?", !!window.THREE.STLLoader);
   </script>
 
-  <!-- Fflate (serve solo per 3MF zip): va bene la UMD dal CDN -->
+  <!-- Fflate UMD (facoltativo; i jsm usano già fflate.module.js) -->
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.7.4/umd/index.js"></script>
 
 </body>

@@ -461,8 +461,49 @@
         })();
       }, undefined, (error) => {
         console.error('Errore nel caricamento del modello 3D:', error);
-        const link = encodeURI(path);
-        viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+        // Fallback: se era un 3MF, prova a caricare lo STL convertito
+        if (extMatch === '3mf') {
+          const stlPath = path.replace(/\.3mf(\?.*)?$/i, '.stl$1');
+          fetch(stlPath, { method: 'HEAD' }).then(r => {
+            if (!r.ok) throw new Error('STL non trovato');
+            const stlLoader = new THREE.STLLoader();
+            stlLoader.load(encodeURI(stlPath), (geom) => {
+              const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+              let hex = sel.color || '#aaaaaa';
+              if (!hex.startsWith('#')) hex = '#' + hex;
+              const col = new THREE.Color(hex);
+              const isTransp = Boolean(sel.is_transparent);
+              const material = new THREE.MeshStandardMaterial({
+                color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
+                metalness: 0.1, roughness: 0.8
+              });
+              const object = new THREE.Mesh(geom, material);
+              scene.add(object);
+
+              const box = new THREE.Box3().setFromObject(object);
+              const size = box.getSize(new THREE.Vector3());
+              const center = box.getCenter(new THREE.Vector3());
+              const maxDim = Math.max(size.x, size.y, size.z) || 1;
+              const fov = camera.fov * (Math.PI / 180);
+              let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+              camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
+              camera.near = Math.max(0.001, maxDim / 100);
+              camera.far  = Math.max(10,    maxDim * 100);
+              camera.updateProjectionMatrix();
+              controls.target.copy(center);
+              controls.update();
+            }, undefined, (e2) => {
+              const link = encodeURI(path);
+              viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+            });
+          }).catch(() => {
+            const link = encodeURI(path);
+            viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+          });
+        } else {
+          const link = encodeURI(path);
+          viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+        }
       });
 
       document.getElementById('out').innerHTML = '';

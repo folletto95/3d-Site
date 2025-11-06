@@ -1,20 +1,32 @@
-# ===== Builder =====
-FROM debian:bookworm-slim AS ps_builder
+# syntax=docker/dockerfile:1.7-labs
 
-ENV DEBIAN_FRONTEND=noninteractive
-# Build deps minimi + DBus (serve anche se GUI=OFF per via del find_package)
+############################
+# 1) Builder: deps + slicer
+############################
+FROM debian:bookworm-slim AS ps_builder
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Toolchain base
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-      git build-essential cmake ninja-build pkg-config ccache \
-      libdbus-1-dev ca-certificates curl \
+      ca-certificates git build-essential cmake ninja-build ccache pkg-config \
+      # DBus dev lo lasciamo per non far fallire FindDBus, anche se poi lo disabilitiamo
+      libdbus-1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-# Versione fissata (puoi cambiare il tag se ti serve)
+# Versione stabile
 RUN git clone --depth=1 --branch version_2.7.4 https://github.com/prusa3d/PrusaSlicer.git
 
+# 1a) Costruisci TUTTE le dipendenze una volta sola
+WORKDIR /src/PrusaSlicer/deps
+RUN --mount=type=cache,target=/root/.cache/ccache \
+    mkdir -p build && cd build && \
+    cmake -G Ninja .. && \
+    ninja
+
+# 1b) Costruisci PrusaSlicer in modalità headless puntando alle deps appena installate
 WORKDIR /src/PrusaSlicer
-# Compila headless e installa i deps locali
 RUN --mount=type=cache,target=/root/.cache/ccache \
     mkdir -p build && cd build && \
     cmake -G Ninja .. \
@@ -25,32 +37,33 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
       -DSLIC3R_STATIC=OFF \
       -DSLIC3R_WX_STABLE=OFF \
       -DSLIC3R_FHS=ON \
+      -DCMAKE_PREFIX_PATH=/src/PrusaSlicer/deps/build/destdir/usr/local \
       -DCMAKE_C_COMPILER_LAUNCHER=ccache \
       -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && \
-    ninja deps && \
     ninja PrusaSlicer && \
-    install -D -m 0755 src/prusa-slicer /out/prusaslicer
+    # estrai solo il binario e le librerie private necessarie
+    install -D -m 0755 src/prusa-slicer /out/prusaslicer && \
+    mkdir -p /out/usr-local && \
+    cp -a /src/PrusaSlicer/deps/build/destdir/usr/local/ /out/usr-local/
 
-# ===== Runtime =====
+############################
+# 2) Runtime minimale
+############################
 FROM debian:bookworm-slim AS runtime
-ENV DEBIAN_FRONTEND=noninteractive
-# Runtime libs di base (stdc++, tbb, jpeg, png, zstd, ecc.)
+ARG DEBIAN_FRONTEND=noninteractive
+
+# runtime basics
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates \
-      libstdc++6 libgcc-s1 libgomp1 \
-      libtbb12 \
-      libjpeg62-turbo libpng16-16 \
-      libzstd1 libbz2-1.0 libexpat1 \
-      libcurl4 \
-      libglib2.0-0 \
-      libx11-6 \
+      libstdc++6 libgcc-s1 libdbus-1-3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copia binario + TUTTO /usr/local generato dai deps di build
+# binario e librerie private
 COPY --from=ps_builder /out/prusaslicer /usr/local/bin/prusaslicer
-COPY --from=ps_builder /src/PrusaSlicer/deps/build/destdir/usr/local/ /usr/local/
+COPY --from=ps_builder /out/usr-local /opt/ps/usr-local
 
-# Default: mostra l'help del CLI
-ENTRYPOINT ["prusaslicer"]
+# assicurati che le libs private vengano trovate
+ENV LD_LIBRARY_PATH=/opt/ps/usr-local/lib:$LD_LIBRARY_PATH
+
+ENTRYPOINT ["/usr/local/bin/prusaslicer"]
 CMD ["--help"]

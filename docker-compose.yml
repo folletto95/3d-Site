@@ -5,7 +5,8 @@ services:
       context: .
       dockerfile: ./api/Dockerfile
       args:
-        PRUSA_URL: "https://github.com/prusa3d/PrusaSlicer/releases/download/v2.7.4/PrusaSlicer-2.7.4+linux-x64-GTK3-202405130813.AppImage"
+        PRUSA_URL: "${PRUSA_URL:-}"  # passa qui l'URL dell'AppImage di PrusaSlicer (opzionale)
+        BAMBU_URL: "${BAMBU_URL:-https://github.com/bambulab/BambuStudio/releases/download/v01.11.01.64/BambuStudio-ubuntu-x64-v01.11.01.64.AppImage}"
     ports:
       - "8088:8080"
     environment:

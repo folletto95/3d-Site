@@ -1,68 +1,79 @@
-# ===================== STAGE 1: build PrusaSlicer CLI =====================
-FROM debian:bookworm AS ps_build
-ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+# syntax=docker/dockerfile:1.7-labs
+FROM debian:bookworm-slim
 
-WORKDIR /src
+ARG DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Toolchain + util per estrazione zip e build docs gmp (makeinfo)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git build-essential cmake ninja-build pkg-config \
-    automake autoconf libtool m4 \
-    perl python3 \
-    curl ca-certificates \
-    zlib1g-dev \
-    unzip texinfo \
- && rm -rf /var/lib/apt/lists/*
+# Build args (opzionali)
+ARG PRUSA_URL=""
+ARG BAMBU_URL="https://github.com/bambulab/BambuStudio/releases/download/v01.11.01.64/BambuStudio-ubuntu-x64-v01.11.01.64.AppImage"
 
-# Sorgenti PrusaSlicer 2.9.3
-ARG PS_VERSION=version_2.9.3
-RUN git clone --depth=1 --branch ${PS_VERSION} https://github.com/prusa3d/PrusaSlicer.git
+# Runtime deps minimi (NO toolkit GUI)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl jq unzip xz-utils \
+        libc6 libstdc++6 libgcc-s1 libtbb2 \
+        libgl1 libglu1-mesa libx11-6 libxext6 libxrender1 libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Build deps (serve unzip + UTF-8; texinfo evita l'errore gmp)
-WORKDIR /src/PrusaSlicer/deps
-RUN mkdir build && cd build && \
-    cmake .. -DDEP_WX_GTK3=ON && \
-    make -j"$(nproc)"
+# Utente non-root
+RUN useradd -m -u 1000 app && mkdir -p /data /opt/tools && chown -R app:app /data /opt/tools
+WORKDIR /opt/tools
 
-# Build PrusaSlicer **solo CLI** (niente GUI)
-WORKDIR /src/PrusaSlicer
-RUN mkdir build && cd build && \
-    cmake .. -DSLIC3R_STATIC=ON -DSLIC3R_GUI=OFF -DCMAKE_BUILD_TYPE=Release && \
-    make -j"$(nproc)"
-
-# Estrai il binario
-RUN set -eux; f="$(find /src/PrusaSlicer/build -type f -perm -111 \
-        \( -name 'PrusaSlicer*' -o -name 'prusa-slicer*' \) | head -n1)"; \
-    test -n "$f"; install -Dm755 "$f" /out/prusaslicer
-
-# ===================== STAGE 2: runtime API =====================
-FROM python:3.11-slim-bookworm
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 LANG=C.UTF-8 LC_ALL=C.UTF-8
-WORKDIR /api
-
-# Runtime minimi + (se ti serve ancora) cura-engine
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl \
-    libglu1-mesa libgtk-3-0 libxrender1 libxi6 libxext6 libx11-6 libxcb1 libxfixes3 \
-    cura-engine \
- && rm -rf /var/lib/apt/lists/*
-
-# PrusaSlicer CLI dal build stage
-COPY --from=ps_build /out/prusaslicer /usr/local/bin/prusaslicer
-
-# Python deps
-COPY api/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Codice API
-COPY api/ .
-
-# (Facoltativo) qualche def Cura
+# --- CuraEngine da BambuStudio AppImage (headless) ---
 RUN set -eux; \
-    mkdir -p /api/cura_defs; \
-    base="https://raw.githubusercontent.com/Ultimaker/Cura/master/resources/definitions"; \
-    curl -fsSLo /api/cura_defs/fdmprinter.def.json "$base/fdmprinter.def.json" || true; \
-    curl -fsSLo /api/cura_defs/creality_base.def.json "$base/creality_base.def.json" || true
+    curl -L --fail -o bambu.AppImage "$BAMBU_URL"; \
+    curl -L --fail -o jextract https://github.com/ivan-hc/jextract/raw/main/jextract; \
+    chmod +x jextract; \
+    ./jextract bambu.AppImage; \
+    CE_PATH="$(printf '%s\n' squashfs-root/usr/bin/CuraEngine squashfs-root/opt/curaengine/CuraEngine | head -n1)"; \
+    if [[ ! -x "$CE_PATH" ]]; then \
+      CE_PATH="$(grep -Rsl --null -m1 -E '/CuraEngine$' squashfs-root 2>/dev/null | head -z -n1)"; \
+    fi; \
+    install -D "$CE_PATH" /opt/curaengine/CuraEngine; \
+    mkdir -p /opt/curaengine/resources; \
+    if compgen -G "squashfs-root/usr/share/cura/resources/*" > /dev/null; then \
+      cp -r squashfs-root/usr/share/cura/resources/* /opt/curaengine/resources/ || true; \
+    fi; \
+    rm -rf squashfs-root bambu.AppImage jextract
+
+ENV CURAENGINE_BIN=/opt/curaengine/CuraEngine
+ENV CURAENGINE_RES=/opt/curaengine/resources
+
+# --- PrusaSlicer CLI (da AppImage se PRUSA_URL è valorizzato) ---
+RUN set -eux; \
+    if [[ -n "$PRUSA_URL" ]]; then \
+      curl -L --fail -o prusa.AppImage "$PRUSA_URL"; \
+      curl -L --fail -o jextract https://github.com/ivan-hc/jextract/raw/main/jextract; \
+      chmod +x jextract; \
+      ./jextract prusa.AppImage; \
+      PS_BIN="$(grep -Rsl --null -m1 -E '/prusa-?slicer$' squashfs-root/usr/bin || true)"; \
+      if [[ -z "$PS_BIN" ]]; then PS_BIN="squashfs-root/usr/bin/prusa-slicer"; fi; \
+      install -D "$PS_BIN" /opt/prusaslicer/prusaslicer; \
+      rm -rf squashfs-root prusa.AppImage jextract; \
+    else \
+      echo "PRUSA_URL non impostata; atteso /opt/prusaslicer/prusaslicer fornito da build stage o COPY."; \
+    fi
+
+# CLI in PATH
+RUN ln -sf /opt/prusaslicer/prusaslicer /usr/local/bin/prusaslicer && \
+    ln -sf /opt/curaengine/CuraEngine /usr/local/bin/CuraEngine
+
+# Env app
+ENV PYTHONUNBUFFERED=1 UVICORN_WORKERS=1 \
+    SPOOLMAN_URL=http://127.0.0.1:7912 \
+    HOURLY_RATE=1 CURRENCY=EUR MAX_UPLOAD_MB=100
+
+# --- App Python ---
+WORKDIR /app
+COPY api/requirements.txt /app/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r /app/requirements.txt
+COPY api /app
+RUN chown -R app:app /app
+USER app
 
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --retries=5 CMD curl -fsS http://127.0.0.1:8080/health || exit 1
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -1,32 +1,42 @@
 # syntax=docker/dockerfile:1.7-labs
-FROM debian:bookworm-slim
 
+FROM debian:bookworm-slim AS ps_builder
 ARG DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# Toolchain minima per build headless
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      git ca-certificates build-essential cmake ninja-build pkg-config \
-      ccache curl python3 python3-pip \
+      git ca-certificates curl \
+      build-essential cmake ninja-build pkg-config \
+      ccache python3 python3-pip \
       libtbb-dev libeigen3-dev libglew-dev libglm-dev \
     && rm -rf /var/lib/apt/lists/*
 
+ENV CCACHE_DIR=/root/.cache/ccache
+RUN ccache -M 2G || true
+
 ARG PS_VERSION=2.7.4
 WORKDIR /src
-RUN git clone --depth=1 --branch version_${PS_VERSION} https://github.com/prusa3d/PrusaSlicer.git
 
+# Sorgenti PrusaSlicer
+RUN git clone --depth=1 --branch version_${PS_VERSION} https://github.com/prusa3d/PrusaSlicer.git
 WORKDIR /src/PrusaSlicer
-RUN mkdir -p build && cd build && \
+
+# Build headless: GUI OFF, DBUS OFF, TEST OFF
+RUN --mount=type=cache,target=/root/.cache/ccache \
+    mkdir -p build && cd build && \
     cmake -G Ninja .. \
       -DSLIC3R_GUI=OFF \
+      -DSLIC3R_DBUS=OFF \
+      -DSLIC3R_BUILD_TESTS=OFF \
       -DSLIC3R_PCH=OFF \
       -DSLIC3R_STATIC=OFF \
       -DSLIC3R_WX_STABLE=OFF \
       -DSLIC3R_FHS=ON \
-    && ninja deps \
-    && ninja PrusaSlicer \
-    && install -D -m 0755 src/prusa-slicer /out/prusaslicer
-
-FROM scratch AS export
-COPY --from=0 /out/prusaslicer /out/prusaslicer
+      -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+      -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && \
+    ninja deps && \
+    ninja PrusaSlicer && \
+    install -D -m 0755 src/prusa-slicer /out/prusaslicer

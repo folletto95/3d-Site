@@ -1,78 +1,30 @@
-# ==== BUILDER ====
+# syntax=docker/dockerfile:1.7-labs
+
+########## STAGE: builder ##########
 FROM debian:bookworm-slim AS ps_builder
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
+# versione prusa selezionabile a build-time
+ARG PS_REF=version_2.7.4
 
-# Toolchain + header necessari SOLO a build-time (OpenGL/GLEW, X headers)
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+# toolchain + libs (boost/tbb/cgal ecc.) + OpenGL per deps GLEW
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends  \
-    ca-certificates \
-    curl \
-    git \
-    build-essential \
-    cmake \
-    ninja-build \
-    ccache \
-    pkg-config \
-    unzip \
-    zip \
-    xz-utils \
-    libarchive-tools \
-    # \
-    per \
-    il \
-    vecchio \
-    errore \
-    DBus \
-    libdbus-1-dev \
-    GLEW/OpenGL \
-    (richiesti \
-    dal \
-    target \
-    deps \
-    in \
-    configure) \
-    libopengl-dev \
-    libgl1-mesa-dev \
-    libglu1-mesa-dev \
-    libglew-dev \
-    alcune \
-    Find*.cmake \
-    cercano \
-    anche \
-    queste \
-    X \
-    headers \
-    libx11-dev \
-    libxi-dev \
-    libxrandr-dev \
-    libxinerama-dev \
-    libxcursor-dev \
-    libxxf86vm-dev \
-    varie \
-    common \
-    dev \
-    libs \
-    usate \
-    dai \
-    zlib1g-dev \
-    libexpat1-dev \
-    libpng-dev \
-    libjpeg62-turbo-dev \
-    libtiff-dev \
-    libssl-dev \
-    libboost-all-dev \
-
+    apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake ninja-build ccache pkg-config git ca-certificates curl unzip zip xz-utils \
+      libboost-all-dev libtbb-dev libcgal-dev libgmp-dev libmpfr-dev libeigen3-dev libnlopt-dev libqhull-dev \
+      zlib1g-dev libexpat1-dev libpng-dev libjpeg62-turbo-dev libtiff-dev \
+      libssl-dev libcurl4-openssl-dev libdbus-1-dev \
+      libopengl-dev libgl1-mesa-dev libglu1-mesa-dev libglew-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-# Versione stabile
-RUN git clone --depth=1 --branch version_2.7.4 https://github.com/prusa3d/PrusaSlicer.git
+RUN git clone --depth=1 --branch ${PS_REF} https://github.com/prusa3d/PrusaSlicer.git
 WORKDIR /src/PrusaSlicer
 
-# Build headless (niente GUI), con ccache
+# build headless
 RUN --mount=type=cache,target=/root/.cache/ccache \
+    ccache -M 2G || true && \
     mkdir -p build && cd build && \
     cmake -G Ninja .. \
       -DSLIC3R_GUI=OFF \
@@ -88,49 +40,13 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
     ninja PrusaSlicer && \
     install -D -m 0755 src/prusa-slicer /out/prusaslicer
 
-# ==== RUNTIME ====
+########## STAGE: runtime ##########
 FROM debian:bookworm-slim AS runtime
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
-
-# runtime minimo per eseguire il binario (no GUI)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends  \
-    ca-certificates \
-    libstdc++6 \
-    libgcc-s1 \
-    libtbb12 \
-    zlib1g \
-    libexpat1 \
-    libpng16-16 \
-    libjpeg62-turbo \
-    libtiff6 \
-    libdbus-1-3 \
-    libboost-all-dev \
-    libopengl-dev \
-    libgl1-mesa-dev \
-    libglu1-mesa-dev \
-    libglew-dev \
-    zlib1g-dev \
-    libexpat1-dev \
-    libpng-dev \
-    libjpeg62-turbo-dev \
-    libtiff-dev \
-    libssl-dev \
-    libdbus-1-dev \
-    ccache \
-    pkg-config \
-    cmake \
-    ninja-build \
-    build-essential \
-    unzip \
-    zip \
-    xz-utils \
-    libarchive-tools \
-    curl \
-
+    apt-get update && apt-get install -y --no-install-recommends \
+      libstdc++6 libtbb2 libdbus-1-3 zlib1g libpng16-16 libjpeg62-turbo libtiff6 \
     && rm -rf /var/lib/apt/lists/*
-
 COPY --from=ps_builder /out/prusaslicer /usr/local/bin/prusaslicer
-ENTRYPOINT ["/usr/local/bin/prusaslicer"]
+
+# solo per test veloce del binario
+ENTRYPOINT ["/usr/local/bin/prusaslicer","--help"]

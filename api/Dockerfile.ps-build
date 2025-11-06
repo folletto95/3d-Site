@@ -6,19 +6,65 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Toolchain + header necessari SOLO a build-time (OpenGL/GLEW, X headers)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git build-essential cmake ninja-build ccache pkg-config \
-      unzip zip xz-utils libarchive-tools \
-      # per il vecchio errore DBus
-      libdbus-1-dev \
-      # per GLEW/OpenGL (richiesti dal target deps in configure)
-      libopengl-dev libgl1-mesa-dev libglu1-mesa-dev libglew-dev \
-      # alcune Find*.cmake cercano anche queste X headers
-      libx11-dev libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev libxxf86vm-dev \
-      # varie common dev libs usate dai deps
-      zlib1g-dev libexpat1-dev libpng-dev libjpeg62-turbo-dev libtiff-dev libssl-dev \
-      libboost-all-dev \
-      && rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y --no-install-recommends  \
+    ca-certificates \
+    curl \
+    git \
+    build-essential \
+    cmake \
+    ninja-build \
+    ccache \
+    pkg-config \
+    unzip \
+    zip \
+    xz-utils \
+    libarchive-tools \
+    # \
+    per \
+    il \
+    vecchio \
+    errore \
+    DBus \
+    libdbus-1-dev \
+    GLEW/OpenGL \
+    (richiesti \
+    dal \
+    target \
+    deps \
+    in \
+    configure) \
+    libopengl-dev \
+    libgl1-mesa-dev \
+    libglu1-mesa-dev \
+    libglew-dev \
+    alcune \
+    Find*.cmake \
+    cercano \
+    anche \
+    queste \
+    X \
+    headers \
+    libx11-dev \
+    libxi-dev \
+    libxrandr-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libxxf86vm-dev \
+    varie \
+    common \
+    dev \
+    libs \
+    usate \
+    dai \
+    zlib1g-dev \
+    libexpat1-dev \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libtiff-dev \
+    libssl-dev \
+    libboost-all-dev \
+
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 # Versione stabile
@@ -50,12 +96,40 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # runtime minimo per eseguire il binario (no GUI)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates \
-      libstdc++6 libgcc-s1 \
-      libtbb12 \
-      zlib1g libexpat1 libpng16-16 libjpeg62-turbo libtiff6 \
-      libdbus-1-3 \
+    apt-get update && apt-get install -y --no-install-recommends  \
+    ca-certificates \
+    libstdc++6 \
+    libgcc-s1 \
+    libtbb12 \
+    zlib1g \
+    libexpat1 \
+    libpng16-16 \
+    libjpeg62-turbo \
+    libtiff6 \
+    libdbus-1-3 \
+    libboost-all-dev \
+    libopengl-dev \
+    libgl1-mesa-dev \
+    libglu1-mesa-dev \
+    libglew-dev \
+    zlib1g-dev \
+    libexpat1-dev \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libtiff-dev \
+    libssl-dev \
+    libdbus-1-dev \
+    ccache \
+    pkg-config \
+    cmake \
+    ninja-build \
+    build-essential \
+    unzip \
+    zip \
+    xz-utils \
+    libarchive-tools \
+    curl \
+
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ps_builder /out/prusaslicer /usr/local/bin/prusaslicer

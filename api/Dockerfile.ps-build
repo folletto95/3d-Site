@@ -1,63 +1,66 @@
-# api/Dockerfile.ps-build
-# PrusaSlicer 2.9.3 headless – builder + runtime
-ARG BASE=debian:bookworm-slim
+# syntax=docker/dockerfile:1.7-labs
+
+# Arg globali (visibili a tutti gli stage se ri-dichiarati nello stage)
+ARG DEBIAN_FRONTEND=noninteractive
 ARG PS_REF=version_2.9.3
 ARG BOOST_VERSION=1.83.0
 
-FROM ${BASE} AS ps_builder
-ARG DEBIAN_FRONTEND=noninteractive
+# -------- STAGE: builder --------
+FROM debian:bookworm-slim AS ps_builder
+ARG DEBIAN_FRONTEND
+ARG PS_REF
 ARG BOOST_VERSION
 
-# Toolchain + dipendenze di build (PNG incluso)
+# Toolchain + dipendenze di build (PNG/JPEG/TIFF inclusi)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-      ca-certificates curl git xz-utils \
-      build-essential cmake ninja-build ccache pkg-config python3 \
-      libdbus-1-dev libcurl4-openssl-dev zlib1g-dev libexpat1-dev \
-      libtbb-dev libeigen3-dev \
-      libpng-dev libjpeg62-turbo-dev libtiff5-dev \
-    && rm -rf /var/lib/apt/lists/*
+  apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build ccache git pkg-config curl ca-certificates \
+    libcurl4-openssl-dev zlib1g-dev libexpat1-dev libssl-dev \
+    libpng-dev libjpeg-dev libtiff-dev libdbus-1-dev libtbb-dev \
+  && rm -rf /var/lib/apt/lists/*
 
-# Boost >= 1.83 richiesto da PS 2.9.x
+# Boost 1.83.0 (richiesto da PS 2.9.x)
 RUN set -eux; \
-    BOOST_US="$(printf '%s' "${BOOST_VERSION}" | tr . _)"; \
-    curl -fsSL "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_US}.tar.gz" -o /tmp/boost.tgz; \
-    tar -xzf /tmp/boost.tgz -C /opt; \
-    cd "/opt/boost_${BOOST_US}"; \
-    ./bootstrap.sh --with-libraries=filesystem,system,thread,log,locale,regex,chrono,atomic,date_time,iostreams,nowide; \
-    ./b2 -j"$(nproc)" cxxflags="-fPIC" link=shared runtime-link=shared install; \
-    ldconfig; \
-    rm -rf /tmp/boost.tgz
+  BOOST_US="$(printf '%s' "${BOOST_VERSION}" | tr . _)"; \
+  curl -fsSL "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_US}.tar.gz" -o /tmp/boost.tgz; \
+  tar -xzf /tmp/boost.tgz -C /opt; \
+  cd "/opt/boost_${BOOST_US}"; \
+  ./bootstrap.sh --with-libraries=filesystem,system,thread,log,locale,regex,chrono,atomic,date_time,iostreams,nowide; \
+  ./b2 -j"$(nproc)" cxxflags="-fPIC" link=shared runtime-link=shared install; \
+  ldconfig; \
+  rm -rf /tmp/boost.tgz
 
 WORKDIR /src
+
 # Clona esattamente il tag richiesto
 RUN git clone --filter=blob:none --branch "${PS_REF}" https://github.com/prusa3d/PrusaSlicer.git
+
 WORKDIR /src/PrusaSlicer
 
-# Configura e compila in headless
+# Build headless (GUI OFF) + install binario
 RUN ccache -M 2G || true && \
-    cmake -S . -B build -G Ninja \
-      -DSLIC3R_GUI=OFF \
-      -DSLIC3R_DBUS=OFF \
-      -DSLIC3R_BUILD_TESTS=OFF \
-      -DSLIC3R_PCH=OFF \
-      -DSLIC3R_STATIC=OFF \
-      -DSLIC3R_WX_STABLE=OFF \
-      -DSLIC3R_FHS=ON \
-      -DTBB_DIR=/usr/lib/x86_64-linux-gnu/cmake/TBB \
-      -DBoost_NO_SYSTEM_PATHS=OFF && \
-    cmake --build build -j"$(nproc)" --target PrusaSlicer && \
-    install -D -m 0755 build/src/prusa-slicer /out/prusaslicer
+  cmake -S . -B build -G Ninja \
+    -DSLIC3R_GUI=OFF \
+    -DSLIC3R_DBUS=OFF \
+    -DSLIC3R_BUILD_TESTS=OFF \
+    -DSLIC3R_PCH=OFF \
+    -DSLIC3R_STATIC=OFF \
+    -DSLIC3R_WX_STABLE=OFF \
+    -DSLIC3R_FHS=ON \
+    -DBoost_NO_SYSTEM_PATHS=OFF \
+    -DTBB_DIR=/usr/lib/x86_64-linux-gnu/cmake/TBB && \
+  cmake --build build -j"$(nproc)" --target PrusaSlicer && \
+  install -D -m 0755 build/src/prusa-slicer /out/prusa-slicer
 
-# Runtime minimale
-FROM ${BASE} AS runtime
-ARG DEBIAN_FRONTEND=noninteractive
+# -------- STAGE: runtime snello --------
+FROM debian:bookworm-slim AS runtime
+ARG DEBIAN_FRONTEND
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-      libstdc++6 libgcc-s1 libtbb12 libcurl4 libdbus-1-3 zlib1g libexpat1 \
-      libpng16-16 libjpeg62-turbo libtiff6 \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=ps_builder /out/prusaslicer /usr/local/bin/prusa-slicer
-ENTRYPOINT ["/usr/local/bin/prusa-slicer"]
+  apt-get update && apt-get install -y --no-install-recommends \
+    libcurl4 zlib1g libexpat1 libssl3 \
+    libpng16-16 libjpeg62-turbo libtiff6 \
+    libdbus-1-3 libtbb12 \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ps_builder /out/prusa-slicer /usr/local/bin/prusa-slicer
+ENTRYPOINT ["/usr/local/bin/prusa-slicer","--version"]

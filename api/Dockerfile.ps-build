@@ -3,33 +3,38 @@
 # ===== ARG globali (facoltativi) =====
 ARG PS_REF=version_2.9.3
 ARG BOOST_VER=1.83.0
-ARG DEBIAN_MIRROR=deb.debian.org        # puoi passarne uno diverso o un IP
-ARG APT_PROXY=                          # es. http://<apt-cacher-ip>:3142
+ARG DEBIAN_MIRROR=          # es. fastly.debian.org (lascia vuoto per non toccare)
+ARG APT_PROXY=              # es. http://<apt-cacher-ip>:3142 (lascia vuoto per non toccare)
 
 # ============================
 # Stage: ps_builder
 # ============================
 FROM debian:bookworm-slim AS ps_builder
 ARG DEBIAN_FRONTEND=noninteractive
-
-# Re-export degli ARG nello stage
 ARG PS_REF
 ARG BOOST_VER
 ARG DEBIAN_MIRROR
 ARG APT_PROXY
 ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER}
 
-# Flag APT robusti (IPv4 + retry + timeout)
+# Flag APT robusti
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# Opzionale: proxy APT e mirror (senza toccare resolv.conf)
+# Opzionale: proxy/mirror (modifica SOLO se presenti e se i file esistono)
 RUN set -eux; \
     if [ -n "${APT_PROXY}" ]; then \
       echo "Acquire::http::Proxy \"${APT_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
     fi; \
-    sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list
+    if [ -n "${DEBIAN_MIRROR}" ]; then \
+      if [ -f /etc/apt/sources.list ]; then \
+        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list; \
+      fi; \
+      if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+      fi; \
+    fi
 
-# Toolchain + deps di build (PNG/JPEG/TIFF + DBus + Eigen)
+# Toolchain + deps (PNG/JPEG/TIFF + DBus + Eigen)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
@@ -89,14 +94,21 @@ ARG DEBIAN_MIRROR
 ARG APT_PROXY
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# Proxy/mirror anche nel runtime
+# Proxy/mirror anche nel runtime (solo se definiti)
 RUN set -eux; \
     if [ -n "${APT_PROXY}" ]; then \
       echo "Acquire::http::Proxy \"${APT_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
     fi; \
-    sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list
+    if [ -n "${DEBIAN_MIRROR}" ]; then \
+      if [ -f /etc/apt/sources.list ]; then \
+        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list; \
+      fi; \
+      if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+      fi; \
+    fi
 
-# Dipendenze runtime del binario (dinamiche)
+# Dipendenze runtime
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \

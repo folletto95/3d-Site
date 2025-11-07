@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 #############################################
-# ARG globali (facoltativi, comodi per default)
+# ARG globali (facoltativi)
 #############################################
 ARG PS_REF=version_2.9.3
 ARG BOOST_VER=1.83.0
@@ -18,7 +18,7 @@ ARG BOOST_VER
 ENV PS_REF=${PS_REF}
 ENV BOOST_VER=${BOOST_VER}
 
-# Toolchain + deps di build (PNG/JPEG/TIFF per evitare fail su FindPNG/JPEG/TIFF)
+# Toolchain + deps di build (PNG/JPEG/TIFF + DBus per evitare fail su Find* )
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake ninja-build ccache git pkg-config \
@@ -26,9 +26,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libcurl4-openssl-dev zlib1g-dev libexpat1-dev \
       libtbb-dev \
       libpng-dev libjpeg-dev libtiff-dev \
+      libdbus-1-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Boost 1.83.0 (come nella tua pipeline)
+# Boost 1.83.0
 RUN set -eux; \
     BOOST_US="$(printf '%s' "${BOOST_VER}" | tr . _)"; \
     curl -L -o /tmp/boost.tar.gz "https://archives.boost.io/release/${BOOST_VER}/source/boost_${BOOST_US}.tar.gz"; \
@@ -40,7 +41,7 @@ RUN set -eux; \
 
 WORKDIR /src
 
-# Clona esattamente il tag richiesto (fail early se non esiste)
+# Clona il tag richiesto (fail early se non esiste)
 RUN set -eux; \
     : "${PS_REF:=version_2.9.3}"; \
     git ls-remote --tags https://github.com/prusa3d/PrusaSlicer.git | grep -E "refs/tags/${PS_REF}$"; \

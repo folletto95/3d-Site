@@ -1,28 +1,32 @@
 # syntax=docker/dockerfile:1.7-labs
 
 ############################
-# Fase "slicer": riusa l'immagine ps-headless
+# Runtime con PrusaSlicer
 ############################
-FROM ps-headless:local AS slicer
-
-############################
-# Runtime API
-############################
-FROM python:3.11-slim-bookworm
+FROM debian:sid-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
-# dipendenze minime runtime + ciò che serve a prusaslicer
+
+# Installazione dipendenze di sistema e PrusaSlicer
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-      libstdc++6 libgcc-s1 libdbus-1-3 \
+      ca-certificates \
+      libglu1-mesa libgl1 libopengl0 \
+      prusa-slicer xvfb tini \
+      python3 python3-venv python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# porta dentro prusaslicer e le sue libs private dall'immagine ps-headless
-COPY --from=slicer /usr/local/bin/prusaslicer /usr/local/bin/prusaslicer
-COPY --from=slicer /opt/ps/usr-local /opt/ps/usr-local
-ENV LD_LIBRARY_PATH=/opt/ps/usr-local/lib:$LD_LIBRARY_PATH
+# Wrapper headless compatibile con il servizio legacy e symlink "prusaslicer"
+RUN printf '#!/bin/sh\nexec xvfb-run -a /usr/bin/prusa-slicer "$@"\n' > /usr/local/bin/ps-headless \
+ && chmod +x /usr/local/bin/ps-headless \
+ && ln -s /usr/bin/prusa-slicer /usr/local/bin/prusaslicer
 
 WORKDIR /app
+
+# Ambiente virtuale per FastAPI
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:${PATH}"
+
 # requirements
 COPY api/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \

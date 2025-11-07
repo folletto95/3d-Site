@@ -21,10 +21,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Boost >= 1.83 richiesto da PS 2.9.x
 RUN set -eux; \
-    BOOST_US="$(tr . _ <<< "${BOOST_VERSION}")"; \
+    BOOST_US="$(printf '%s' "${BOOST_VERSION}" | tr . _)"; \
     curl -fsSL "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_US}.tar.gz" -o /tmp/boost.tgz; \
     tar -xzf /tmp/boost.tgz -C /opt; \
-    cd /opt/boost_${BOOST_US}; \
+    cd "/opt/boost_${BOOST_US}"; \
     ./bootstrap.sh --with-libraries=filesystem,system,thread,log,locale,regex,chrono,atomic,date_time,iostreams,nowide; \
     ./b2 -j"$(nproc)" cxxflags="-fPIC" link=shared runtime-link=shared install; \
     ldconfig; \

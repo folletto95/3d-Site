@@ -1,113 +1,23 @@
-# syntax=docker/dockerfile:1.6
+# PrusaSlicer CLI pronto all’uso (headless)
+FROM debian:sid-slim
 
-#############################
-# Stage: ps_builder
-#############################
-FROM debian:bookworm-slim AS ps_builder
-
-ARG DEBIAN_FRONTEND=noninteractive
-ARG PS_REF=version_2.9.3
-ARG BOOST_VER=1.83.0
-ARG ENABLE_STEP=OFF
-ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER} ENABLE_STEP=${ENABLE_STEP}
-
-# APT robusto
-ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
-
-# Abilita deb e deb-src (ATTENZIONE: security va su debian-security)
+ENV DEBIAN_FRONTEND=noninteractive
+# Evita “tzdata” e pulisce cache
 RUN set -eux; \
-  cat >/etc/apt/sources.list.d/debian.sources <<'EOF'
-Types: deb deb-src
-URIs: http://deb.debian.org/debian
-Suites: bookworm bookworm-updates
-Components: main
+    apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update; \
+    apt-get install -y --no-install-recommends \
+      prusa-slicer \
+      xvfb \
+      libglu1-mesa \
+      libgl1 \
+      libopengl0 \
+      ca-certificates \
+      tini; \
+    rm -rf /var/lib/apt/lists/*
 
-Types: deb deb-src
-URIs: http://deb.debian.org/debian-security
-Suites: bookworm-security
-Components: main
-EOF
-RUN apt-get ${APT_FLAGS} update
+# Wrapper: se il binario ha bisogno di un display (anteprime), lo diamo via Xvfb.
+RUN printf '#!/bin/sh\nexec xvfb-run -a /usr/bin/prusa-slicer "$@"\n' > /usr/local/bin/ps-headless \
+ && chmod +x /usr/local/bin/ps-headless
 
-# Toolchain base
-RUN set -eux; \
-  apt-get ${APT_FLAGS} install -y --no-install-recommends \
-    build-essential cmake ninja-build ccache git pkg-config curl ca-certificates
-
-# Tutte le build-deps ufficiali (prima prusa-slicer, fallback slic3r-prusa)
-RUN set -eux; \
-  if apt-cache showsrc prusa-slicer | grep -qi '^Package:'; then \
-    apt-get ${APT_FLAGS} build-dep -y prusa-slicer; \
-  else \
-    apt-get ${APT_FLAGS} build-dep -y slic3r-prusa; \
-  fi; \
-  if [ "${ENABLE_STEP}" = "OFF" ]; then \
-    apt-get -y purge 'libocct-.*' || true; \
-    apt-get -y autoremove --purge || true; \
-  fi; \
-  rm -rf /var/lib/apt/lists/*
-
-# Boost 1.83.0
-RUN set -eux; \
-  BOOST_US="$(printf "%s" "${BOOST_VER}" | tr . _)"; \
-  curl -L -o /tmp/boost.tar.gz "https://archives.boost.io/release/${BOOST_VER}/source/boost_${BOOST_US}.tar.gz"; \
-  mkdir -p /opt/boost; \
-  tar -xzf /tmp/boost.tar.gz -C /opt/boost --strip-components=1; \
-  cd /opt/boost; \
-  ./bootstrap.sh --with-libraries=filesystem,system,thread,log,locale,regex,chrono,atomic,date_time,iostreams,nowide; \
-  ./b2 -j"$(nproc)" install; \
-  ldconfig
-
-WORKDIR /src
-
-# Clone tag richiesto (fail-early)
-RUN set -eux; \
-  git ls-remote --tags https://github.com/prusa3d/PrusaSlicer.git | grep -E "refs/tags/${PS_REF}$"; \
-  git clone --filter=blob:none --single-branch --depth 1 \
-    --branch "${PS_REF}" https://github.com/prusa3d/PrusaSlicer.git
-
-WORKDIR /src/PrusaSlicer
-
-# Configure + build headless
-RUN ccache -M 2G || true && \
-  cmake -S . -B build -G Ninja \
-    -DSLIC3R_GUI=OFF \
-    -DSLIC3R_DBUS=OFF \
-    -DSLIC3R_BUILD_TESTS=OFF \
-    -DSLIC3R_PCH=OFF \
-    -DSLIC3R_STATIC=OFF \
-    -DSLIC3R_WX_STABLE=OFF \
-    -DSLIC3R_FHS=ON \
-    -DSLIC3R_ENABLE_FORMAT_STEP=${ENABLE_STEP} \
-    -DOpenGL_GL_PREFERENCE=GLVND \
-    -DTBB_DIR=/usr/lib/x86_64-linux-gnu/cmake/TBB \
-    -DBoost_NO_SYSTEM_PATHS=OFF && \
-  cmake --build build -j"$(nproc)" --target PrusaSlicer && \
-  install -D -m 0755 build/src/prusa-slicer /out/prusa-slicer
-
-#############################
-# Stage: runtime
-#############################
-FROM debian:bookworm-slim AS runtime
-
-ARG DEBIAN_FRONTEND=noninteractive
-ARG ENABLE_STEP=OFF
-ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
-
-RUN set -eux; \
-  apt-get ${APT_FLAGS} update; \
-  apt-get ${APT_FLAGS} install -y --no-install-recommends \
-    libpng16-16 libjpeg62-turbo libtiff6 \
-    libcurl4 libexpat1 libtbb12 zlib1g \
-    libglew2.2 \
-    ca-certificates; \
-  if [ "${ENABLE_STEP}" = "ON" ]; then \
-    apt-get ${APT_FLAGS} install -y --no-install-recommends \
-      libocct-data-exchange libocct-modeling-data libocct-modeling-algorithms; \
-  fi; \
-  rm -rf /var/lib/apt/lists/*
-
-COPY --from=ps_builder /out/prusa-slicer /usr/local/bin/prusa-slicer
-
-ENTRYPOINT ["/usr/local/bin/prusa-slicer"]
+ENTRYPOINT ["/usr/bin/tini","--","/usr/local/bin/ps-headless"]
 CMD ["--help"]

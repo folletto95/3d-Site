@@ -21,8 +21,8 @@ ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER} ENABLE_STEP=${ENABLE_STEP}
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
 # Toolchain + dipendenze di build
-# - PNG/JPEG/TIFF, CURL, Zlib, Expat, DBus, Eigen, TBB
-# - OpenGL/GLX (GLVND) + X11 headers: necessari anche con GUI=OFF perché CMake li cerca comunque
+# PNG/JPEG/TIFF, CURL, Zlib, Expat, DBus, Eigen, TBB
+# OpenGL/GLX (GLVND) + X11 + GLEW + GLM (header-only)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
@@ -34,7 +34,9 @@ RUN set -eux; \
       libdbus-1-dev \
       libeigen3-dev \
       mesa-common-dev libgl1-mesa-dev libglvnd-dev libopengl-dev libglx-dev libglu1-mesa-dev \
-      libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev; \
+      libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev \
+      libglew-dev libglm-dev \
+    ; \
     if [ "${ENABLE_STEP}" = "ON" ]; then \
       apt-get ${APT_FLAGS} install -y --no-install-recommends \
         libocct-data-exchange-dev \
@@ -43,7 +45,7 @@ RUN set -eux; \
     fi; \
     rm -rf /var/lib/apt/lists/*
 
-# Boost 1.83.0 (come richiesto)
+# Boost 1.83.0
 RUN set -eux; \
     BOOST_US="$(printf "%s" "${BOOST_VER}" | tr . _)"; \
     curl -L -o /tmp/boost.tar.gz "https://archives.boost.io/release/${BOOST_VER}/source/boost_${BOOST_US}.tar.gz"; \
@@ -90,12 +92,13 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG ENABLE_STEP
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# Dipendenze runtime minime (niente GUI)
+# Dipendenze runtime minime
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
       libpng16-16 libjpeg62-turbo libtiff6 \
       libcurl4 libexpat1 libtbb12 zlib1g \
+      libglew2.2 \
       ca-certificates; \
     if [ "${ENABLE_STEP}" = "ON" ]; then \
       apt-get ${APT_FLAGS} install -y --no-install-recommends \

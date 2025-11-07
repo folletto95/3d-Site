@@ -1,23 +1,28 @@
-# PrusaSlicer CLI pronto all’uso (headless)
+# syntax=docker/dockerfile:1.6
 FROM debian:sid-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
-# Evita “tzdata” e pulisce cache
 RUN set -eux; \
     apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update; \
     apt-get install -y --no-install-recommends \
-      prusa-slicer \
-      xvfb \
-      libglu1-mesa \
-      libgl1 \
-      libopengl0 \
-      ca-certificates \
-      tini; \
+      prusa-slicer xvfb tini \
+      libglu1-mesa libgl1 libopengl0 ca-certificates python3 python3-venv; \
     rm -rf /var/lib/apt/lists/*
 
-# Wrapper: se il binario ha bisogno di un display (anteprime), lo diamo via Xvfb.
+# Wrapper headless (Xvfb solo se serve a certe funzioni interne)
 RUN printf '#!/bin/sh\nexec xvfb-run -a /usr/bin/prusa-slicer "$@"\n' > /usr/local/bin/ps-headless \
  && chmod +x /usr/local/bin/ps-headless
 
-ENTRYPOINT ["/usr/bin/tini","--","/usr/local/bin/ps-headless"]
-CMD ["--help"]
+# App FastAPI
+WORKDIR /app
+COPY api/slicer_service.py /app/slicer_service.py
+
+# Venv minimale
+RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir fastapi uvicorn[standard]
+
+# Profili montati da host in /profiles (read-only nel compose)
+VOLUME ["/profiles", "/work"]
+
+ENV PATH="/venv/bin:${PATH}"
+ENTRYPOINT ["/usr/bin/tini","--"]
+CMD ["uvicorn","slicer_service:app","--host","0.0.0.0","--port","8080","--proxy-headers"]

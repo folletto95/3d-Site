@@ -1,25 +1,25 @@
+version: "3.8"
 services:
-  app:
-    container_name: spoolsite
+  slicer:
     build:
       context: .
-      dockerfile: ./api/Dockerfile
-      args:
-        PRUSA_URL: "${PRUSA_URL:-}"  # passa qui l'URL dell'AppImage di PrusaSlicer (opzionale)
-        BAMBU_URL: "${BAMBU_URL:-https://github.com/bambulab/BambuStudio/releases/download/v01.11.01.64/BambuStudio-ubuntu-x64-v01.11.01.64.AppImage}"
-    ports:
-      - "8088:8080"
-    environment:
-      - SPOOLMAN_URL=${SPOOLMAN_URL:-http://192.168.10.164:7912}
-      - HOURLY_RATE=${HOURLY_RATE:-1}
-      - CURRENCY=${CURRENCY:-EUR}
-      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-100}
-    healthcheck:
-      test: ["CMD-SHELL","curl -fsS http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      dockerfile: api/Dockerfile.ps-prebuilt
+    image: ps-headless:apt-sid
+    container_name: ps-headless
+    read_only: true
+    tmpfs:
+      - /tmp
     volumes:
-      - ./web:/app/web:ro
-      - ./uploads:/app/uploads
+      - ./profiles:/profiles:ro
+      - ./work:/work
+    environment:
+      PRINTER_INI: /profiles/printer.ini
+      FILAMENT_INI: /profiles/filament.ini
+      PRINT_INI: /profiles/print.ini
+      COSTO_EUR_AL_KWH: "0.30"
+      WATT_STIMATI: "80"
+      COSTO_EUR_AL_KG: "22"
+      MARGINE_PERCENT: "25"
+    ports:
+      - "8080:8080"
     restart: unless-stopped

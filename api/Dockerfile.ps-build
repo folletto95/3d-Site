@@ -3,7 +3,7 @@
 # ===== ARG globali =====
 ARG PS_REF=version_2.9.3
 ARG BOOST_VER=1.83.0
-ARG ENABLE_STEP=OFF          # ON = abilita STEP (OCCT), OFF = build più snella
+ARG ENABLE_STEP=OFF          
 
 # ============================
 # Stage: ps_builder

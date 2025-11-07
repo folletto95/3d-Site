@@ -1,40 +1,28 @@
 # syntax=docker/dockerfile:1.6
 
-# ===== ARG globali (facoltativi) =====
+# ===== ARG globali =====
 ARG PS_REF=version_2.9.3
 ARG BOOST_VER=1.83.0
-ARG DEBIAN_MIRROR=
-ARG APT_PROXY=
+ARG ENABLE_STEP=OFF          # ON per supporto STEP (OCCT), OFF per build più semplice
 
 # ============================
 # Stage: ps_builder
 # ============================
 FROM debian:bookworm-slim AS ps_builder
 ARG DEBIAN_FRONTEND=noninteractive
+
+# Re-export ARG nello stage
 ARG PS_REF
 ARG BOOST_VER
-ARG DEBIAN_MIRROR
-ARG APT_PROXY
-ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER}
+ARG ENABLE_STEP
+ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER} ENABLE_STEP=${ENABLE_STEP}
 
 # Flag APT robusti
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# Opzionale: proxy/mirror (solo se definiti) e compatibile con bookworm-slim
-RUN set -eux; \
-    if [ -n "${APT_PROXY}" ]; then \
-      echo "Acquire::http::Proxy \"${APT_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
-    fi; \
-    if [ -n "${DEBIAN_MIRROR}" ]; then \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list; \
-      fi; \
-      if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
-      fi; \
-    fi
-
-# Toolchain + deps (PNG/JPEG/TIFF + DBus + Eigen + OpenGL/GLX GLVND + X11)
+# Toolchain + dipendenze di build
+# - PNG/JPEG/TIFF, CURL, Zlib, Expat, DBus, Eigen, TBB
+# - OpenGL/GLX (GLVND) + X11 headers: necessari anche con GUI=OFF perché CMake li cerca comunque
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
@@ -45,13 +33,17 @@ RUN set -eux; \
       libpng-dev libjpeg-dev libtiff-dev \
       libdbus-1-dev \
       libeigen3-dev \
-      mesa-common-dev libgl1-mesa-dev libglvnd-dev libglu1-mesa-dev \
-      libopengl-dev libglx-dev \
-      libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev \
-    ; \
+      mesa-common-dev libgl1-mesa-dev libglvnd-dev libopengl-dev libglx-dev libglu1-mesa-dev \
+      libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev; \
+    if [ "${ENABLE_STEP}" = "ON" ]; then \
+      apt-get ${APT_FLAGS} install -y --no-install-recommends \
+        libocct-data-exchange-dev \
+        libocct-modeling-data-dev \
+        libocct-modeling-algorithms-dev; \
+    fi; \
     rm -rf /var/lib/apt/lists/*
 
-# Boost 1.83.0
+# Boost 1.83.0 (come richiesto)
 RUN set -eux; \
     BOOST_US="$(printf "%s" "${BOOST_VER}" | tr . _)"; \
     curl -L -o /tmp/boost.tar.gz "https://archives.boost.io/release/${BOOST_VER}/source/boost_${BOOST_US}.tar.gz"; \
@@ -64,7 +56,7 @@ RUN set -eux; \
 
 WORKDIR /src
 
-# Clone del tag richiesto (fail-early se non esiste)
+# Clona il tag richiesto (fail-early se non esiste)
 RUN set -eux; \
     : "${PS_REF:=version_2.9.3}"; \
     git ls-remote --tags https://github.com/prusa3d/PrusaSlicer.git | grep -E "refs/tags/${PS_REF}$"; \
@@ -83,7 +75,7 @@ RUN ccache -M 2G || true && \
       -DSLIC3R_STATIC=OFF \
       -DSLIC3R_WX_STABLE=OFF \
       -DSLIC3R_FHS=ON \
-      -DSLIC3R_ENABLE_FORMAT_STEP=ON \
+      -DSLIC3R_ENABLE_FORMAT_STEP=${ENABLE_STEP} \
       -DOpenGL_GL_PREFERENCE=GLVND \
       -DTBB_DIR=/usr/lib/x86_64-linux-gnu/cmake/TBB \
       -DBoost_NO_SYSTEM_PATHS=OFF && \
@@ -95,32 +87,22 @@ RUN ccache -M 2G || true && \
 # ============================
 FROM debian:bookworm-slim AS runtime
 ARG DEBIAN_FRONTEND=noninteractive
-ARG DEBIAN_MIRROR
-ARG APT_PROXY
+ARG ENABLE_STEP
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# Proxy/mirror anche nel runtime (solo se definiti)
-RUN set -eux; \
-    if [ -n "${APT_PROXY}" ]; then \
-      echo "Acquire::http::Proxy \"${APT_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
-    fi; \
-    if [ -n "${DEBIAN_MIRROR}" ]; then \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list; \
-      fi; \
-      if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-        sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g; s|https://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
-      fi; \
-    fi
-
-# Dipendenze runtime (niente OpenGL richiesto per CLI)
+# Dipendenze runtime minime (niente GUI)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
       libpng16-16 libjpeg62-turbo libtiff6 \
       libcurl4 libexpat1 libtbb12 zlib1g \
-      ca-certificates \
-    ; \
+      ca-certificates; \
+    if [ "${ENABLE_STEP}" = "ON" ]; then \
+      apt-get ${APT_FLAGS} install -y --no-install-recommends \
+        libocct-data-exchange \
+        libocct-modeling-data \
+        libocct-modeling-algorithms; \
+    fi; \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=ps_builder /out/prusa-slicer /usr/local/bin/prusa-slicer

@@ -5,7 +5,6 @@ services:
       dockerfile: api/Dockerfile.ps-prebuilt
     image: ps-headless:apt-sid
     container_name: ps-headless
-    read_only: true
     tmpfs:
       - /tmp
     volumes:

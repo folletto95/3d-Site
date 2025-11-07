@@ -1,13 +1,14 @@
-.PHONY: all ps edge clean
+SHELL := /bin/bash
 PS_REF ?= version_2.9.3
+IMAGE_TAG ?= ps-headless:$(PS_REF)
 
 all: ps
 
 ps:
-	DOCKER_BUILDKIT=1 docker build -f api/Dockerfile.ps-build -t ps-headless:$(PS_REF) --build-arg PS_REF=$(PS_REF) .
+	DOCKER_BUILDKIT=1 docker build \
+		-f api/Dockerfile.ps-build \
+		-t $(IMAGE_TAG) \
+		--build-arg PS_REF=$(PS_REF) .
 
 edge:
-	DOCKER_BUILDKIT=1 docker build -f api/Dockerfile.ps-build -t ps-headless:edge --build-arg PS_REF=main .
-
-clean:
-	- docker image rm -f ps-headless:$(PS_REF) ps-headless:edge
+	$(MAKE) ps PS_REF=master

@@ -1,31 +1,17 @@
 services:
-  slicer:
+  slicer-api:
     build:
       context: .
-      dockerfile: api/Dockerfile.ps-prebuilt
-    image: ps-headless:apt-sid
-    container_name: ps-headless
-
-    privileged: true
-    security_opt:
-      - systempaths=unconfined
-    tmpfs:
-      - /tmp
-      - /run
-
-    volumes:
-      - ./profiles:/profiles:ro
-      - ./work:/work
-
+      dockerfile: services/slicer-api/Dockerfile
+    image: slicer-api:latest
+    container_name: slicer-api
     environment:
-      PRINTER_INI: /profiles/printer.ini
-      FILAMENT_INI: /profiles/filament.ini
-      PRINT_INI: /profiles/print.ini
-      COSTO_EUR_AL_KWH: "0.30"
-      WATT_STIMATI: "80"
-      COSTO_EUR_AL_KG: "22"
-      MARGINE_PERCENT: "25"
-
+      - TZ=${TZ}
+    volumes:
+      - ./storage/uploads:/in
+      - ./storage/sliced:/out
+      - ./profiles:/profiles:ro
+      - ./storage/logs:/logs
     ports:
-      - "8080:8080"
+      - "${SLICER_API_PORT:-8080}:8080"
     restart: unless-stopped

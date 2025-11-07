@@ -1,0 +1,15 @@
+services:
+  prusaslicer-gui:
+    image: mikeah/prusaslicer-novnc:latest
+    container_name: prusaslicer-gui
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ./profiles:/profiles
+      - ./storage/uploads:/uploads
+      - ./storage/sliced:/out
+    # espone solo in LAN locale; meglio proteggere con reverse proxy + auth
+    ports:
+      - "6080:6080"   # noVNC
+      # - "5900:5900" # (opzionale) VNC raw
+    restart: unless-stopped

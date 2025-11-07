@@ -5,8 +5,17 @@ services:
       dockerfile: api/Dockerfile.ps-prebuilt
     image: ps-headless:apt-sid
     container_name: ps-headless
+    # read_only: true  # <-- lasciamo disattivato per ora
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "1024"
+    security_opt:
+      - no-new-privileges:true
+      - systempaths=unconfined
     tmpfs:
       - /tmp
+      - /run
     volumes:
       - ./profiles:/profiles:ro
       - ./work:/work

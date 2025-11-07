@@ -1,65 +1,66 @@
 # syntax=docker/dockerfile:1.6
 
-#############################################
-# ARG globali (facoltativi)
-#############################################
+# ===== ARG globali (facoltativi) =====
 ARG PS_REF=version_2.9.3
 ARG BOOST_VER=1.83.0
+ARG DEBIAN_MIRROR=deb.debian.org        # puoi passarne uno diverso o un IP
+ARG APT_PROXY=                          # es. http://<apt-cacher-ip>:3142
 
-############################
+# ============================
 # Stage: ps_builder
-############################
+# ============================
 FROM debian:bookworm-slim AS ps_builder
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Rende disponibili gli ARG globali nello stage
+# Re-export degli ARG nello stage
 ARG PS_REF
 ARG BOOST_VER
-ENV PS_REF=${PS_REF}
-ENV BOOST_VER=${BOOST_VER}
+ARG DEBIAN_MIRROR
+ARG APT_PROXY
+ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER}
 
 # Flag APT robusti (IPv4 + retry + timeout)
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# DNS pubblico per evitare problemi di risoluzione durante la build
-RUN bash -euxo pipefail -c '\
-  printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf \
-'
+# Opzionale: proxy APT e mirror (senza toccare resolv.conf)
+RUN set -eux; \
+    if [ -n "${APT_PROXY}" ]; then \
+      echo "Acquire::http::Proxy \"${APT_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
+    fi; \
+    sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list
 
 # Toolchain + deps di build (PNG/JPEG/TIFF + DBus + Eigen)
-RUN bash -euxo pipefail -c '\
-  apt-get ${APT_FLAGS} update && \
-  apt-get ${APT_FLAGS} install -y --no-install-recommends \
-    build-essential cmake ninja-build ccache git pkg-config \
-    curl ca-certificates \
-    libcurl4-openssl-dev zlib1g-dev libexpat1-dev \
-    libtbb-dev \
-    libpng-dev libjpeg-dev libtiff-dev \
-    libdbus-1-dev \
-    libeigen3-dev && \
-  rm -rf /var/lib/apt/lists/* \
-'
+RUN set -eux; \
+    apt-get ${APT_FLAGS} update; \
+    apt-get ${APT_FLAGS} install -y --no-install-recommends \
+      build-essential cmake ninja-build ccache git pkg-config \
+      curl ca-certificates \
+      libcurl4-openssl-dev zlib1g-dev libexpat1-dev \
+      libtbb-dev \
+      libpng-dev libjpeg-dev libtiff-dev \
+      libdbus-1-dev \
+      libeigen3-dev; \
+    rm -rf /var/lib/apt/lists/*
 
 # Boost 1.83.0
-RUN bash -euxo pipefail -c '\
-  BOOST_US="$(printf "%s" "${BOOST_VER}" | tr . _)"; \
-  curl -L -o /tmp/boost.tar.gz "https://archives.boost.io/release/${BOOST_VER}/source/boost_${BOOST_US}.tar.gz"; \
-  mkdir -p /opt/boost && tar -xzf /tmp/boost.tar.gz -C /opt/boost --strip-components=1; \
-  cd /opt/boost; \
-  ./bootstrap.sh --with-libraries=filesystem,system,thread,log,locale,regex,chrono,atomic,date_time,iostreams,nowide; \
-  ./b2 -j"$(nproc)" install; \
-  ldconfig \
-'
+RUN set -eux; \
+    BOOST_US="$(printf "%s" "${BOOST_VER}" | tr . _)"; \
+    curl -L -o /tmp/boost.tar.gz "https://archives.boost.io/release/${BOOST_VER}/source/boost_${BOOST_US}.tar.gz"; \
+    mkdir -p /opt/boost; \
+    tar -xzf /tmp/boost.tar.gz -C /opt/boost --strip-components=1; \
+    cd /opt/boost; \
+    ./bootstrap.sh --with-libraries=filesystem,system,thread,log,locale,regex,chrono,atomic,date_time,iostreams,nowide; \
+    ./b2 -j"$(nproc)" install; \
+    ldconfig
 
 WORKDIR /src
 
-# Clona il tag richiesto (fail early se non esiste)
-RUN bash -euxo pipefail -c '\
-  : "${PS_REF:=version_2.9.3}"; \
-  git ls-remote --tags https://github.com/prusa3d/PrusaSlicer.git | grep -E "refs/tags/${PS_REF}$"; \
-  git clone --filter=blob:none --single-branch --depth 1 \
-    --branch "${PS_REF}" https://github.com/prusa3d/PrusaSlicer.git \
-'
+# Clone del tag richiesto (fail-early se non esiste)
+RUN set -eux; \
+    : "${PS_REF:=version_2.9.3}"; \
+    git ls-remote --tags https://github.com/prusa3d/PrusaSlicer.git | grep -E "refs/tags/${PS_REF}$"; \
+    git clone --filter=blob:none --single-branch --depth 1 \
+      --branch "${PS_REF}" https://github.com/prusa3d/PrusaSlicer.git
 
 WORKDIR /src/PrusaSlicer
 
@@ -79,27 +80,30 @@ RUN ccache -M 2G || true && \
     cmake --build build -j"$(nproc)" --target PrusaSlicer && \
     install -D -m 0755 build/src/prusa-slicer /out/prusa-slicer
 
-############################
+# ============================
 # Stage: runtime
-############################
+# ============================
 FROM debian:bookworm-slim AS runtime
 ARG DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_MIRROR
+ARG APT_PROXY
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# DNS pubblico anche nel runtime
-RUN bash -euxo pipefail -c '\
-  printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf \
-'
+# Proxy/mirror anche nel runtime
+RUN set -eux; \
+    if [ -n "${APT_PROXY}" ]; then \
+      echo "Acquire::http::Proxy \"${APT_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
+    fi; \
+    sed -i "s|http://deb.debian.org|http://${DEBIAN_MIRROR}|g" /etc/apt/sources.list
 
 # Dipendenze runtime del binario (dinamiche)
-RUN bash -euxo pipefail -c '\
-  apt-get ${APT_FLAGS} update && \
-  apt-get ${APT_FLAGS} install -y --no-install-recommends \
-    libpng16-16 libjpeg62-turbo libtiff6 \
-    libcurl4 libexpat1 libtbb12 zlib1g \
-    ca-certificates && \
-  rm -rf /var/lib/apt/lists/* \
-'
+RUN set -eux; \
+    apt-get ${APT_FLAGS} update; \
+    apt-get ${APT_FLAGS} install -y --no-install-recommends \
+      libpng16-16 libjpeg62-turbo libtiff6 \
+      libcurl4 libexpat1 libtbb12 zlib1g \
+      ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=ps_builder /out/prusa-slicer /usr/local/bin/prusa-slicer
 

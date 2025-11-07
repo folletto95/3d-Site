@@ -1,44 +1,37 @@
-# ---- builder ----
+# --- Builder: compila Boost 1.83 + PrusaSlicer 2.9.3 headless ---
 FROM debian:bookworm-slim AS ps_builder
-ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 
-# toolchain + min runtime headers (niente GUI)
+# Toolchain + librerie necessarie alla build (senza roba GUI)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-  apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git ca-certificates cmake ninja-build ccache pkg-config \
-    python3 zip unzip curl \
-    libdbus-1-dev \
-    # per superbuild di deps: OpenGL headers richiesti anche se GUI=OFF
-    libgl1-mesa-dev libglu1-mesa-dev libglvnd-dev \
-  && rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git build-essential cmake ninja-build ccache pkg-config \
+      libdbus-1-dev libtbb-dev zlib1g-dev libzstd-dev libexpat1-dev libnlopt-dev \
+      libeigen3-dev libcurl4-openssl-dev python3 && \
+    rm -rf /var/lib/apt/lists/*
 
-WORKDIR /src
-# Forza 2.9.3
+# Boost 1.83 (PS 2.9.3 lo richiede)
+ARG BOOST_VERSION=1.83.0
+RUN curl -L -o /tmp/boost.tar.bz2 \
+      https://boostorg.jfrog.io/artifactory/main/release/${BOOST_VERSION}/source/boost_1_83_0.tar.bz2 \
+ && tar -xf /tmp/boost.tar.bz2 -C /opt \
+ && cd /opt/boost_1_83_0 && ./bootstrap.sh \
+      --with-libraries=filesystem,system,thread,log,locale,regex,chrono,atomic,date_time,iostreams,nowide \
+ && ./b2 -j"$(nproc)" cxxflags="-fPIC" link=shared runtime-link=shared install \
+ && ldconfig \
+ && rm -rf /tmp/boost.tar.bz2
+
+# PrusaSlicer
 ARG PS_REF=version_2.9.3
-
-# Clona e checkout esatto del tag
-RUN git clone --filter=blob:none https://github.com/prusa3d/PrusaSlicer.git \
- && cd PrusaSlicer \
- && git checkout -q tags/${PS_REF}
-
-# ---------- build DEPS (Boost 1.83 ecc.) ----------
-WORKDIR /src/PrusaSlicer/deps
-RUN mkdir -p build \
- && cd build \
- && cmake -G Ninja .. -DCMAKE_BUILD_TYPE=Release \
- && ninja deps
-
-# Prefix dove il superbuild installa i deps
-ENV DEPS_PREFIX=/src/PrusaSlicer/deps/build/destdir/usr/local
-
-# ---------- build PRUSASLICER headless ----------
+WORKDIR /src
+RUN git clone --filter=blob:none --branch ${PS_REF} https://github.com/prusa3d/PrusaSlicer.git
 WORKDIR /src/PrusaSlicer
-RUN ccache -M 2G || true \
- && mkdir -p build && cd build \
- && cmake -G Ninja .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_PREFIX_PATH=${DEPS_PREFIX} \
-      -DBoost_NO_SYSTEM_PATHS=ON \
+
+# Configura e compila headless (niente deps GUI, niente test)
+RUN ccache -M 2G || true && \
+    cmake -S . -B build -G Ninja \
       -DSLIC3R_GUI=OFF \
       -DSLIC3R_DBUS=OFF \
       -DSLIC3R_BUILD_TESTS=OFF \
@@ -46,19 +39,22 @@ RUN ccache -M 2G || true \
       -DSLIC3R_STATIC=OFF \
       -DSLIC3R_WX_STABLE=OFF \
       -DSLIC3R_FHS=ON \
- && ninja PrusaSlicer \
- && install -D -m 0755 src/prusa-slicer /out/prusaslicer
+      -DTBB_DIR=/usr/lib/x86_64-linux-gnu/cmake/TBB \
+      -DBoost_NO_SYSTEM_PATHS=OFF && \
+    cmake --build build -j"$(nproc)" --target PrusaSlicer && \
+    install -D -m 0755 build/src/prusa-slicer /out/prusaslicer
 
-# ---- runtime ----
+# --- Runtime minimale: solo le runtime libs necessarie ---
 FROM debian:bookworm-slim AS runtime
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-  apt-get update && apt-get install -y --no-install-recommends \
-    libdbus-1-3 \
-  && rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates libdbus-1-3 libtbb12 libstdc++6 zlib1g libzstd1 libcurl4 \
+      libexpat1 libgcc-s1 libnlopt0 && \
+    rm -rf /var/lib/apt/lists/*
 
-# porta dentro binario + tutte le librerie dei deps
-COPY --from=ps_builder /out/prusaslicer /usr/local/bin/prusa-slicer
-COPY --from=ps_builder /src/PrusaSlicer/deps/build/destdir/usr/local/ /usr/local/
-
-ENTRYPOINT ["/usr/local/bin/prusa-slicer"]
+COPY --from=ps_builder /out/prusaslicer /usr/local/bin/prusaslicer
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/prusaslicer"]

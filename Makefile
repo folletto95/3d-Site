@@ -1,10 +1,13 @@
-.PHONY: ps api all
+.PHONY: all ps edge clean
+PS_REF ?= version_2.9.3
+
+all: ps
 
 ps:
-\tdocker build -f api/Dockerfile.ps-build -t ps-headless:local .
+	DOCKER_BUILDKIT=1 docker build -f api/Dockerfile.ps-build -t ps-headless:$(PS_REF) --build-arg PS_REF=$(PS_REF) .
 
-api: ps
-\tdocker build -f api/Dockerfile -t site-api:local .
+edge:
+	DOCKER_BUILDKIT=1 docker build -f api/Dockerfile.ps-build -t ps-headless:edge --build-arg PS_REF=main .
 
-all: api
-\t@echo "Immagini pronte: ps-headless:local e site-api:local"
+clean:
+	- docker image rm -f ps-headless:$(PS_REF) ps-headless:edge

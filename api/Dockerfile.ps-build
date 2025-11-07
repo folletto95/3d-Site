@@ -34,7 +34,7 @@ RUN set -eux; \
       fi; \
     fi
 
-# Toolchain + deps (PNG/JPEG/TIFF + DBus + Eigen + **OpenGL/GLX**)
+# Toolchain + deps (PNG/JPEG/TIFF + DBus + Eigen + OpenGL/GLX GLVND + X11)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
@@ -46,6 +46,7 @@ RUN set -eux; \
       libdbus-1-dev \
       libeigen3-dev \
       mesa-common-dev libgl1-mesa-dev libglvnd-dev libglu1-mesa-dev \
+      libopengl-dev libglx-dev \
       libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev \
     ; \
     rm -rf /var/lib/apt/lists/*
@@ -83,6 +84,7 @@ RUN ccache -M 2G || true && \
       -DSLIC3R_WX_STABLE=OFF \
       -DSLIC3R_FHS=ON \
       -DSLIC3R_ENABLE_FORMAT_STEP=ON \
+      -DOpenGL_GL_PREFERENCE=GLVND \
       -DTBB_DIR=/usr/lib/x86_64-linux-gnu/cmake/TBB \
       -DBoost_NO_SYSTEM_PATHS=OFF && \
     cmake --build build -j"$(nproc)" --target PrusaSlicer && \
@@ -111,7 +113,7 @@ RUN set -eux; \
       fi; \
     fi
 
-# Dipendenze runtime (GUI non necessaria)
+# Dipendenze runtime (niente OpenGL richiesto per CLI)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \

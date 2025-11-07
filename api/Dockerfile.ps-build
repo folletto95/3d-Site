@@ -18,7 +18,7 @@ ARG BOOST_VER
 ENV PS_REF=${PS_REF}
 ENV BOOST_VER=${BOOST_VER}
 
-# Toolchain + deps di build (PNG/JPEG/TIFF + DBus per evitare fail su Find* )
+# Toolchain + deps di build (PNG/JPEG/TIFF + DBus + Eigen)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
       build-essential cmake ninja-build ccache git pkg-config \
@@ -27,6 +27,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libtbb-dev \
       libpng-dev libjpeg-dev libtiff-dev \
       libdbus-1-dev \
+      libeigen3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Boost 1.83.0

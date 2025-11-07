@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY slice_api.py /app/slice_api.py
+COPY services/slicer-api/slice_api.py /app/slice_api.py
 
 RUN python3 -m pip install --no-cache-dir fastapi uvicorn[standard]
 

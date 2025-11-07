@@ -21,7 +21,7 @@ ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER} ENABLE_STEP=${ENABLE_STEP}
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
 # Toolchain + dipendenze di build
-# PNG/JPEG/TIFF, CURL, Zlib, Expat, DBus, Eigen, TBB
+# PNG/JPEG/TIFF, CURL, Zlib, Expat, DBus, Eigen, TBB, cereal
 # OpenGL/GLX (GLVND) + X11 + GLEW + GLM (header-only)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
@@ -33,6 +33,7 @@ RUN set -eux; \
       libpng-dev libjpeg-dev libtiff-dev \
       libdbus-1-dev \
       libeigen3-dev \
+      libcereal-dev \
       mesa-common-dev libgl1-mesa-dev libglvnd-dev libopengl-dev libglx-dev libglu1-mesa-dev \
       libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev \
       libglew-dev libglm-dev \

@@ -3,8 +3,8 @@
 # ===== ARG globali (facoltativi) =====
 ARG PS_REF=version_2.9.3
 ARG BOOST_VER=1.83.0
-ARG DEBIAN_MIRROR=          # es. fastly.debian.org (lascia vuoto per non toccare)
-ARG APT_PROXY=              # es. http://<apt-cacher-ip>:3142 (lascia vuoto per non toccare)
+ARG DEBIAN_MIRROR=
+ARG APT_PROXY=
 
 # ============================
 # Stage: ps_builder
@@ -20,7 +20,7 @@ ENV PS_REF=${PS_REF} BOOST_VER=${BOOST_VER}
 # Flag APT robusti
 ARG APT_FLAGS="-o Acquire::Retries=5 -o Acquire::ForceIPv4=true -o Acquire::http::No-Cache=true -o Acquire::http::Timeout=30"
 
-# Opzionale: proxy/mirror (modifica SOLO se presenti e se i file esistono)
+# Opzionale: proxy/mirror (solo se definiti) e compatibile con bookworm-slim
 RUN set -eux; \
     if [ -n "${APT_PROXY}" ]; then \
       echo "Acquire::http::Proxy \"${APT_PROXY}\";" > /etc/apt/apt.conf.d/01proxy; \
@@ -34,7 +34,7 @@ RUN set -eux; \
       fi; \
     fi
 
-# Toolchain + deps (PNG/JPEG/TIFF + DBus + Eigen)
+# Toolchain + deps (PNG/JPEG/TIFF + DBus + Eigen + **OpenGL/GLX**)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
@@ -44,7 +44,10 @@ RUN set -eux; \
       libtbb-dev \
       libpng-dev libjpeg-dev libtiff-dev \
       libdbus-1-dev \
-      libeigen3-dev; \
+      libeigen3-dev \
+      mesa-common-dev libgl1-mesa-dev libglvnd-dev libglu1-mesa-dev \
+      libx11-dev libxext-dev libxrender-dev libxrandr-dev libxi-dev libxinerama-dev \
+    ; \
     rm -rf /var/lib/apt/lists/*
 
 # Boost 1.83.0
@@ -108,13 +111,14 @@ RUN set -eux; \
       fi; \
     fi
 
-# Dipendenze runtime
+# Dipendenze runtime (GUI non necessaria)
 RUN set -eux; \
     apt-get ${APT_FLAGS} update; \
     apt-get ${APT_FLAGS} install -y --no-install-recommends \
       libpng16-16 libjpeg62-turbo libtiff6 \
       libcurl4 libexpat1 libtbb12 zlib1g \
-      ca-certificates; \
+      ca-certificates \
+    ; \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=ps_builder /out/prusa-slicer /usr/local/bin/prusa-slicer

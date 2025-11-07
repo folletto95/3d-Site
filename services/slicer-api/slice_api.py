@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import PlainTextResponse
-import subprocess, shutil, uuid, pathlib, os
+import subprocess, shutil, uuid, pathlib
 
 IN_DIR  = pathlib.Path("/in")
 OUT_DIR = pathlib.Path("/out")
@@ -9,10 +9,8 @@ LOGS    = pathlib.Path("/logs")
 
 app = FastAPI()
 
-def ps(*args):
-    # wrapper: esegue prusa-slicer e ritorna (rc, out, err)
-    proc = subprocess.run(args, capture_output=True, text=True)
-    return proc.returncode, proc.stdout, proc.stderr
+def run_ps(args):
+    return subprocess.run(args, capture_output=True, text=True)
 
 @app.post("/slice", response_class=PlainTextResponse)
 async def slice_file(
@@ -27,7 +25,6 @@ async def slice_file(
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     LOGS.mkdir(parents=True, exist_ok=True)
 
-    # Sorgente modello: upload oppure file già in /in
     if model:
         tmpname = f"{uuid.uuid4()}_{model.filename}"
         dst = IN_DIR / tmpname
@@ -35,27 +32,21 @@ async def slice_file(
             shutil.copyfileobj(model.file, f)
         model_file = str(dst)
     elif model_path:
-        model_file = str(pathlib.Path(model_path))
+        model_file = model_path
     else:
         return PlainTextResponse("Missing model", status_code=400)
 
     out_path = OUT_DIR / out_name
-
     cmd = [
-        "/usr/bin/prusa-slicer",
-        "--no-gui",
-        "--load", printer_cfg,
-        "--load", print_cfg,
-        "--load", filament_cfg,
-        "-g", model_file,
-        "-o", str(out_path)
+        "/usr/bin/prusa-slicer", "--no-gui",
+        "--load", printer_cfg, "--load", print_cfg, "--load", filament_cfg,
+        "-g", model_file, "-o", str(out_path)
     ]
-    rc, so, se = ps(*cmd)
-    # log
-    (LOGS / (out_name + ".stdout.log")).write_text(so)
-    (LOGS / (out_name + ".stderr.log")).write_text(se)
+    p = run_ps(cmd)
+    (LOGS / (out_name + ".stdout.log")).write_text(p.stdout)
+    (LOGS / (out_name + ".stderr.log")).write_text(p.stderr)
 
-    if rc != 0 or not out_path.exists():
-        return PlainTextResponse(f"PrusaSlicer failed.\n{se}", status_code=500)
+    if p.returncode != 0 or not out_path.exists():
+        return PlainTextResponse("PrusaSlicer failed.\n" + p.stderr, status_code=500)
 
     return str(out_path)

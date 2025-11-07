@@ -6,21 +6,22 @@ RUN set -eux; \
     apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update; \
     apt-get install -y --no-install-recommends \
       prusa-slicer xvfb tini \
-      libglu1-mesa libgl1 libopengl0 ca-certificates python3 python3-venv; \
+      libglu1-mesa libgl1 libopengl0 \
+      ca-certificates \
+      python3 python3-venv; \
     rm -rf /var/lib/apt/lists/*
 
-# Wrapper headless (Xvfb solo se serve a certe funzioni interne)
+# Wrapper headless (alcune funzioni chiedono un display virtuale)
 RUN printf '#!/bin/sh\nexec xvfb-run -a /usr/bin/prusa-slicer "$@"\n' > /usr/local/bin/ps-headless \
  && chmod +x /usr/local/bin/ps-headless
 
-# App FastAPI
 WORKDIR /app
 COPY api/slicer_service.py /app/slicer_service.py
 
-# Venv minimale
+# Env isolato per FastAPI
 RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir fastapi uvicorn[standard]
 
-# Profili montati da host in /profiles (read-only nel compose)
+# Volumi: profili (RO) e spazio di lavoro
 VOLUME ["/profiles", "/work"]
 
 ENV PATH="/venv/bin:${PATH}"

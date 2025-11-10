@@ -5,7 +5,7 @@ services:
       dockerfile: services/slicer-api/Dockerfile
     image: slicer-api:latest
     container_name: slicer-api
-    network_mode: host 
+    #network_mode: host 
     environment:
       TZ: Europe/Rome
       SPOOLMAN_URL: "http://192.168.10.164:7912"

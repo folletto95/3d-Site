@@ -13,8 +13,7 @@ COPY profiles /profiles
 COPY web /app/web
 
 RUN "$VIRTUAL_ENV/bin/pip" install --no-cache-dir \
-    fastapi "uvicorn[standard]" python-multipart httpx
+    fastapi "uvicorn[standard]" python-multipart httpx requests
 
-# ascolta direttamente su 8088
 ENTRYPOINT ["/opt/venv/bin/uvicorn"]
 CMD ["slice_api:app","--host","0.0.0.0","--port","8088"]

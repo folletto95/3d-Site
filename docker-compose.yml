@@ -9,6 +9,9 @@ services:
     environment:
       TZ: Europe/Rome
       SPOOLMAN_URL: "http://192.168.10.164:7912"
+      SPOOLMAN_SKIP_TLS_VERIFY: "1"
+      CURRENCY: "EUR"
+      HOURLY_RATE: "2"
     volumes:
       - ./storage/uploads:/in
       - ./storage/sliced:/out

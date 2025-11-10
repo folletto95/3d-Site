@@ -14,6 +14,7 @@ WORKDIR /app
 COPY services/slicer-api/slice_api.py /app/slice_api.py
 # Profili e UI
 COPY profiles /profiles
+COPY api/ /app/api/
 COPY web /app/web
 
 # Dipendenze FastAPI (include multipart)

@@ -1,269 +1,234 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
+import os
+import typing as T
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, UploadFile, Form
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, re, colorsys
 import httpx
 
-app = FastAPI(title="slicer-api", version="0.8.1")
+APP_DIR = Path(__file__).parent
+WEB_DIR = APP_DIR / "web"
 
-# ---------- UI ----------
-app.mount("/ui", StaticFiles(directory="web", html=True), name="ui")
+# Env
+SPOOLMAN = os.environ.get("SPOONMAN_URL") or os.environ.get("SPOONMAN_URL") or "http://192.168.10.164:7912"
+HOURLY_RATE = float(os.environ.get("HOURLY_RATE", "1"))
+CURRENCY = os.environ.get("CURRENCY", "EUR")
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "info").lower()
 
-@app.get("/", include_in_schema=False)
-def root():
-    return RedirectResponse(url="/ui/")
+app = FastAPI(title="3D Site API", version="1.0.0")
 
-@app.get("/health", response_class=PlainTextResponse, include_in_schema=False)
-def health():
-    return "ok"
+# /ui static
+if WEB_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
 
-# ---------- Config ----------
-CURRENCY    = os.getenv("CURRENCY", "EUR")
-HOURLY_RATE = float(os.getenv("HOURLY_RATE", "1"))
+# --------- Utils ---------
+def _norm_hex(h: T.Optional[str]) -> str:
+    if not h:
+        return "#777777"
+    h = h.strip()
+    if not h.startswith("#"):
+        h = "#" + h
+    if len(h) == 4:  # #rgb -> #rrggbb
+        h = "#" + "".join([c*2 for c in h[1:]])
+    return h.upper()
 
-def _no_cache(payload: dict):
-    return JSONResponse(content=payload, headers={"Cache-Control": "no-store, max-age=0"})
-
-# ---------- Color utils ----------
-def _normalize_hex(h: str | None) -> str | None:
-    if not h: return None
-    s = str(h).strip()
-    if not s: return None
-    if not s.startswith("#"): s = "#" + s
-    if len(s) == 4:  # #RGB -> #RRGGBB
-        r, g, b = s[1], s[2], s[3]
-        s = f"#{r}{r}{g}{g}{b}{b}"
-    return s.upper()[:7]
-
-def _hex_to_name(h: str) -> str:
-    """Heuristica IT aggiornata: evita over-classifiche Arancione,
-    riconosce rosa pastello, confine Blu/Viola anticipato."""
-    h = _normalize_hex(h)
-    if not h: return "Grigio"
-    try:
-        r = int(h[1:3], 16) / 255.0
-        g = int(h[3:5], 16) / 255.0
-        b = int(h[5:7], 16) / 255.0
-    except Exception:
-        return "Grigio"
-
-    # casi netti
-    if r > 0.94 and g > 0.94 and b > 0.94: return "Bianco"
-    if r < 0.06 and g < 0.06 and b < 0.06: return "Nero"
-
-    h_, l, s = colorsys.rgb_to_hls(r, g, b)   # H in [0,1), L,S in [0,1]
-    deg = (h_ * 360.0) % 360.0
-
-    # poco saturi -> scala grigi
-    if s < 0.10:
-        if l > 0.90: return "Bianco"
-        if l < 0.10: return "Nero"
-        return "Grigio"
-
-    # rosa pastello (chiaro, poco sat., dominante R) – es. #F7E6DE
-    if l > 0.78 and s < 0.38 and r >= g >= b:
-        return "Rosa"
-
-    # arancio chiaro tendente al giallo – es. #E4BD68
-    if 25 <= deg < 50 and l > 0.75:
-        return "Giallo"
-
-    # mappa principale (bande strette)
-    if 350 <= deg or deg < 10:   return "Rosso"
-    if 10 <= deg < 25:           return "Rosso"
-    if 25 <= deg < 35:           return "Arancione"
-    if 35 <= deg < 50 and s >= 0.35:
-        return "Arancione"
-    if 50 <= deg < 90:           return "Giallo"
-    if 90 <= deg < 170:          return "Verde"
-    if 170 <= deg < 200:         return "Ciano"
-    if 200 <= deg < 250:         return "Blu"     # confine anticipato
-    if 250 <= deg < 300:         return "Viola"
-    if 300 <= deg < 350:         return "Rosa"
-    return "Grigio"
-
-TRANSPAT = re.compile(
-    r"\b(clear|transparent|traspar|translucent|translucido|semi[-\s]?traspar|glass|smoke)\b",
-    re.I
-)
-
-def _detect_transparent(spool: dict, filament: dict, color_hex: str | None) -> bool:
-    blob = " ".join([
-        str(spool.get("name","")),
-        str(spool.get("product","")),
-        str(spool.get("color","")),
-        str(spool.get("color_name","")),
-        str(filament.get("name","")),
-        str(filament.get("material","")),
-    ])
-    if TRANSPAT.search(blob): return True
-    mat = (filament.get("material") or spool.get("material") or "").lower()
-    if "petg" in mat and "transluc" in blob.lower():  # PETG Translucent
+def _is_transparent(material: str, color_name: str, is_transparent_flag: T.Optional[bool]) -> bool:
+    if is_transparent_flag:
         return True
-    hx = _normalize_hex(color_hex)
-    if hx:
-        try:
-            r = int(hx[1:3],16); g = int(hx[3:5],16); b = int(hx[5:7],16)
-            if max(r,g,b) > 248 and TRANSPAT.search(blob): return True
-        except Exception:
-            pass
+    text = f"{material} {color_name}".lower()
+    for key in ("translucent", "transparent", "trasparente"):
+        if key in text:
+            return True
     return False
 
-def _first(d: dict, keys):
-    for k in keys:
-        if isinstance(d, dict) and d.get(k) is not None:
-            return d[k]
+# --------- Spoolman fetch with fallbacks ---------
+SPOOL_ENDPOINTS = [
+    "/api/v1/spool/?page_size=1000",
+    "/api/v1/spools?page_size=1000",
+    "/api/spool/?page_size=1000",
+    "/api/spools?page_size=1000",
+]
 
-def _bases_from_env():
-    base = (os.getenv("SPOOLMAN_URL") or "").rstrip("/")
-    if not base: base = "http://192.168.10.164:7912"
-    if base.startswith(("http://","https://")):
-        proto, rest = base.split("://",1)
-        alt = ("https" if proto=="http" else "http") + "://" + rest
-        return [base, alt]
-    return [f"http://{base}", f"https://{base}"]
+async def fetch_spools() -> T.List[dict]:
+    """
+    Tenta più endpoint noti di Spoolman e normalizza il campo results.
+    Restituisce lista di spools raw.
+    """
+    async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+        last_err = None
+        for ep in SPOOL_ENDPOINTS:
+            url = SPOOLMAN.rstrip("/") + ep
+            try:
+                r = await client.get(url)
+                r.raise_for_status()
+                data = r.json()
+                # Possibili chiavi: "results", "items", "spools", …
+                if isinstance(data, dict):
+                    for key in ("results", "items", "spools", "data"):
+                        if key in data and isinstance(data[key], list):
+                            return data[key]
+                if isinstance(data, list):
+                    return data
+                # Se qui, risposta strana
+                last_err = RuntimeError(f"Formato sconosciuto da {url}")
+            except Exception as e:
+                last_err = e
+        raise HTTPException(
+            status_code=502,
+            detail=f"Spoolman non raggiungibile. "
+                   f"Tentativi: {[SPOOLMAN + ep for ep in SPOOL_ENDPOINTS]}  Errore: {type(last_err).__name__}: {last_err}"
+        )
 
-def _paths_from_env():
-    over = os.getenv("SPOOLMAN_SPOOLS_PATH")
-    return [over] if over else [
-        "/api/v1/spool/?page_size=1000",
-        "/api/v1/spools?page_size=1000",
-        "/api/spool/?page_size=1000",
-        "/api/spools?page_size=1000",
-    ]
+def _val(x, *names, default=None):
+    """
+    Estrae un valore da dict annidati provando più path.
+    Esempio: _val(sp, ("filament","material"), ("material",), default="")
+    """
+    if not isinstance(x, dict):
+        return default
+    for name in names:
+        cur = x
+        ok = True
+        for p in (name if isinstance(name, (list, tuple)) else [name]):
+            if isinstance(cur, dict) and p in cur:
+                cur = cur[p]
+            else:
+                ok = False
+                break
+        if ok:
+            return cur
+    return default
 
-def _price_per_kg_from_spool(spool, filament):
-    spool_price = _first(spool, ["purchase_price","price","spool_price","cost_eur","cost"])
-    weight_g    = _first(filament, ["weight","weight_g"])
-    if spool_price is not None and weight_g:
-        try: return float(spool_price) / (float(weight_g)/1000.0)
-        except Exception: return None
-    return _first(filament, ["price_per_kg","cost_per_kg"])
+def _norm_item(sp: dict) -> dict:
+    """
+    Normalizza un singolo spool in un oggetto 'item' coerente con la UI.
+    """
+    # campi possibili
+    filament = _val(sp, "filament", default={}) or {}
+    material = _val(sp, ("filament","material"), "material", ("filament","type"), default="") or ""
+    diameter = _val(sp, ("filament","diameter"), "diameter", default=1.75)
+    color_hex = _norm_hex(_val(sp, ("filament","color_hex"), "color_hex", default="#777777"))
+    color_name = _val(sp, ("filament","color"), ("filament","color_name"), "color_name", "color", default="") or ""
+    is_transp = _is_transparent(material, color_name, _val(sp, "is_transparent", default=None))
 
-def _extract_filament_from_spool(spool):
-    f = spool.get("filament")
-    if isinstance(f, dict) and f: return f
-    legacy = {}
-    for k in ("filament_name","name","product"):
-        if spool.get(k): legacy["name"] = spool[k]; break
-    for k in ("filament_material","material"):
-        if spool.get(k): legacy["material"] = spool[k]; break
-    for k in ("filament_diameter","diameter","diameter_mm"):
-        if spool.get(k): legacy["diameter"] = spool[k]; break
-    for k in ("filament_color_hex","color_hex"):
-        if spool.get(k): legacy["color_hex"] = spool[k]; break
-    for k in ("filament_price","price"):
-        if spool.get(k) is not None: legacy["price"] = spool[k]; break
-    for k in ("filament_weight","weight_g","weight"):
-        if spool.get(k) is not None: legacy["weight"] = spool[k]; break
-    return legacy if legacy else {}
+    # pesi / costi
+    # Spoolman ha varianti: "remaining_weight_g", "remaining_g", "remaining_weight"
+    remaining_g = _val(sp, "remaining_weight_g", "remaining_g", "remaining_weight", default=None)
+    if remaining_g is None:
+        # fallback peso totale - usato
+        total_g = _val(sp, "initial_weight_g", "weight", default=None)
+        used_g  = _val(sp, "used_weight_g", "used", default=None)
+        if total_g is not None and used_g is not None:
+            remaining_g = max(0, float(total_g) - float(used_g))
+    try:
+        remaining_g = int(round(float(remaining_g))) if remaining_g is not None else None
+    except:
+        remaining_g = None
 
-# ---------- INVENTORY ----------
-@app.get("/inventory")
-async def inventory():
-    verify = not (os.getenv("SPOOLMAN_SKIP_TLS_VERIFY","").lower() in ("1","true","yes"))
-    token  = os.getenv("SPOOLMAN_TOKEN")
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    # prezzo/kg: priorità a campi espliciti
+    price_per_kg = _val(sp, "price_per_kg", ("filament","price_per_kg"), default=None)
+    if price_per_kg is None:
+        # calcolo rozzo se abbiamo prezzo spool e peso
+        price_eur = _val(sp, "price", default=None)
+        weight_g  = _val(sp, "weight_g", "initial_weight_g", default=None)
+        if price_eur is not None and weight_g:
+            try:
+                price_per_kg = float(price_eur) / (float(weight_g)/1000.0)
+            except:
+                price_per_kg = None
+    try:
+        price_per_kg = round(float(price_per_kg), 2) if price_per_kg is not None else None
+    except:
+        price_per_kg = None
 
-    attempted, data, last_err = [], None, None
-    async with httpx.AsyncClient(timeout=12.0, headers=headers, follow_redirects=True, verify=verify) as client:
-        for b in _bases_from_env():
-            for p in _paths_from_env():
-                if not p: continue
-                url = f"{b}{p}"
-                attempted.append(url)
-                try:
-                    r = await client.get(url)
-                    if r.status_code == 200:
-                        data = r.json(); break
-                    last_err = f"HTTP {r.status_code} on {url}"
-                except Exception as e:
-                    last_err = f"{type(e).__name__}: {e}"
-            if data is not None: break
+    # nome "umano": se vuoto, ci pensa il frontend a derivarlo da HEX
+    return {
+        "count": 1,
+        "remaining_g": remaining_g,
+        "price_per_kg": price_per_kg,
+        "color_hex": color_hex,
+        "color_name": color_name if color_name else None,
+        "material": str(material or "").strip() or "N/D",
+        "diameter": str(diameter),
+        "is_transparent": bool(is_transp),
+        "currency": CURRENCY,
+    }
 
-    if data is None:
-        raise HTTPException(502, f"Spoolman non raggiungibile. Tentativi: {attempted}  Errore: {last_err}")
-
-    spools = data.get("results") or data.get("spools") if isinstance(data, dict) else data
-    spools = spools or []
-
-    items = []
-    for s in spools:
-        f = _extract_filament_from_spool(s)
-        color_hex = _normalize_hex(_first(s,["color_hex"]) or f.get("color_hex")) or "#777777"
-        material  = f.get("material") or s.get("material") or "N/A"
-        diameter  = str(f.get("diameter") or s.get("diameter") or "")
-        is_trans  = _detect_transparent(s, f, color_hex)
-        color_name = _first(s,["color_name","colour_name"]) or f.get("color_name") or f.get("colour_name")
-        if is_trans: color_name = "Trasparente"
-        if not color_name: color_name = _hex_to_name(color_hex)
-        price_per_kg = _price_per_kg_from_spool(s, f)
-
-        items.append({
-            "hex": color_hex,
-            "name": color_name,
+def _group_items(items: T.List[dict]) -> T.List[dict]:
+    """
+    Raggruppa per (material, color_hex, diameter, is_transparent, color_name) sommando quantità e count.
+    """
+    from collections import defaultdict
+    acc = defaultdict(lambda: {"count":0, "remaining_g":0, "price_per_kg":None, "currency":CURRENCY})
+    def key(it):
+        return (
+            it.get("material",""),
+            it.get("color_hex","#777777").upper(),
+            it.get("diameter","1.75"),
+            bool(it.get("is_transparent", False)),
+            it.get("color_name") or None,
+        )
+    for it in items:
+        k = key(it)
+        node = acc[k]
+        node["count"] += 1
+        if isinstance(it.get("remaining_g"), (int,float)):
+            node["remaining_g"] += int(round(float(it["remaining_g"])))
+        # scegli un price_per_kg non-null (il primo disponibile)
+        if node["price_per_kg"] is None and it.get("price_per_kg") is not None:
+            node["price_per_kg"] = it["price_per_kg"]
+    # ricostruzione oggetti
+    out = []
+    for k, node in acc.items():
+        material, color_hex, diameter, is_transparent, color_name = k
+        out.append({
+            "count": node["count"],
+            "remaining_g": node["remaining_g"] if node["remaining_g"] else None,
+            "price_per_kg": node["price_per_kg"],
             "color_hex": color_hex,
             "color_name": color_name,
             "material": material,
-            "diameter": diameter,
-            "count": 1,
-            "remaining_g": float(_first(s,["remaining_weight","remaining_weight_g"]) or 0.0),
-            "price_per_kg": float(price_per_kg) if price_per_kg is not None else None,
-            "currency": CURRENCY,
-            "is_transparent": bool(is_trans),
+            "diameter": str(diameter),
+            "is_transparent": bool(is_transparent),
+            "currency": node["currency"],
         })
+    # ordina per material, poi colore
+    out.sort(key=lambda x: (x["material"], x["color_hex"]))
+    return out
 
-    merged = {}
-    for it in items:
-        key = (it["hex"], it["material"], it["diameter"], it["is_transparent"])
-        b = merged.setdefault(key, {"count":0,"remaining_g":0.0,"price_per_kg":None,
-                                    "hex":it["hex"],"name":it["name"],
-                                    "color_hex":it["color_hex"],"color_name":it["color_name"],
-                                    "material":it["material"],"diameter":it["diameter"],
-                                    "is_transparent":it["is_transparent"],"currency":CURRENCY})
-        b["count"] += 1
-        b["remaining_g"] += it["remaining_g"]
-        if it["price_per_kg"] and not b["price_per_kg"]:
-            b["price_per_kg"] = it["price_per_kg"]
+# --------- Routes ---------
 
-    out = list(merged.values())
-    out.sort(key=lambda x: (x["material"].lower(), x["name"].lower(), x["hex"]))
-    return _no_cache({"items": out, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
+@app.get("/", response_class=PlainTextResponse)
+async def root():
+    return "3D Site API alive. Visit /ui/"
 
-@app.get("/api/spools")  # alias per la UI
-async def api_spools_alias():
-    return await inventory()
+@app.get("/health", response_class=JSONResponse)
+async def health():
+    return {"status":"ok","spoolman":SPOOLMAN,"hourly_rate":HOURLY_RATE,"currency":CURRENCY}
 
-# ---------- Slice demo ----------
-@app.post("/api/slice", response_class=PlainTextResponse)
+@app.get("/ui/", response_class=HTMLResponse)
+async def ui_index():
+    index_path = WEB_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(404, "index.html non trovato")
+    return HTMLResponse(index_path.read_text(encoding="utf-8"))
+
+@app.get("/inventory", response_class=JSONResponse)
+@app.get("/api/spools", response_class=JSONResponse)
+async def inventory():
+    spools = await fetch_spools()
+    items = [_norm_item(sp) for sp in spools]
+    grouped = _group_items(items)
+    return {"items": grouped, "hourly_rate": HOURLY_RATE, "currency": CURRENCY}
+
+# Endpoint di slice (placeholder per ora)
+@app.post("/slice", response_class=PlainTextResponse)
 async def slice_model(
-    model: UploadFile = File(...),
-    preset_print: str | None = Form(None),
-    preset_filament: str | None = Form(None),
-    preset_printer: str | None = Form(None),
+    file: UploadFile,
+    filament_hex: str = Form(default="#FFFFFF"),
+    material: str = Form(default="PLA"),
+    nozzle: float = Form(default=0.4),
 ):
-    with tempfile.TemporaryDirectory() as td:
-        in_path = os.path.join(td, model.filename)
-        with open(in_path, "wb") as f:
-            f.write(await model.read())
-        out_path = os.path.join(td, "out.gcode")
-
-        args = [
-            "PrusaSlicer","--export-gcode",
-            "--load","/profiles/print.ini",
-            "--load","/profiles/filament.ini",
-            "--load","/profiles/printer.ini",
-            in_path,"-o",out_path,
-        ]
-        if preset_print:    args += ["--load", preset_print]
-        if preset_filament: args += ["--load", preset_filament]
-        if preset_printer:  args += ["--load", preset_printer]
-
-        try:
-            subprocess.run(args, check=True, text=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            tail = (e.stderr or e.stdout or "")[-4000:]
-            raise HTTPException(500, f"Slicer failed:\n{tail}")
-
-        with open(out_path, "r", encoding="utf-8", errors="ignore") as g:
-            return g.read()
+    # TODO: integrare curaengine/prusaslicer CLI
+    return f"Slice richiesto: {file.filename} / {material} {filament_hex} nozzle={nozzle}"

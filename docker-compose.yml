@@ -5,18 +5,13 @@ services:
       dockerfile: services/slicer-api/Dockerfile
     image: slicer-api:latest
     container_name: slicer-api
-    #network_mode: host 
+    network_mode: host
     environment:
       TZ: Europe/Rome
-      SPOOLMAN_URL: "http://192.168.10.164:7912"
+      # Metti QUI esattamente come risponda Spoolman.
+      # Se sta dietro SSL (self-signed o NPM), usa https + skip verify:
+      SPOOLMAN_URL: "https://192.168.10.164:7912"
       SPOOLMAN_SKIP_TLS_VERIFY: "1"
       CURRENCY: "EUR"
-      HOURLY_RATE: "2"
-    volumes:
-      - ./storage/uploads:/in
-      - ./storage/sliced:/out
-      - ./profiles:/profiles:ro
-      - ./storage/logs:/logs
-    ports:
-      - "${SLICER_API_PORT:-8088}:8080"
+      HOURLY_RATE: "1"
     restart: unless-stopped

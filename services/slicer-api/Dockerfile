@@ -1,34 +1,19 @@
-# Base con PrusaSlicer CLI (linuxserver.io base con s6 e KasmVNC)
 FROM xabix99/prusaslicer:latest
 
-# Python venv per evitare PEP 668
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3-full python3-venv && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-# Venv
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:${PATH}"
-
-# Dipendenze app
-RUN pip install --no-cache-dir \
-      fastapi \
-      uvicorn[standard] \
-      httpx \
-      python-multipart \
-      jinja2
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv "$VIRTUAL_ENV" && "$VIRTUAL_ENV/bin/pip" install --upgrade pip
 
 WORKDIR /app
-
-# API
 COPY services/slicer-api/slice_api.py /app/slice_api.py
-
-# UI
+COPY profiles /profiles
 COPY web /app/web
 
-# cartelle di lavoro
-RUN mkdir -p /app/work /app/profiles
+RUN "$VIRTUAL_ENV/bin/pip" install --no-cache-dir \
+    fastapi "uvicorn[standard]" python-multipart httpx requests
 
-EXPOSE 8088
-
-# Avvio tramite s6 -> vedi docker-compose command
+ENTRYPOINT ["/opt/venv/bin/uvicorn"]
+CMD ["slice_api:app","--host","0.0.0.0","--port","8088"]

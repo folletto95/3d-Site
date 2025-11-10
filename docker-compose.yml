@@ -1,26 +1,17 @@
-version: "3.8"
-
 services:
   slicer-api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: services/slicer-api/Dockerfile
+    image: slicer-api:latest
     container_name: slicer-api
-    # Host mode: evita problemi di porte e consente di raggiungere Spoolman nella tua LAN
     network_mode: host
     environment:
-      PUID: "911"
-      PGID: "911"
-      TZ: "Europe/Rome"
-      SPOONMAN_URL: "http://192.168.10.164:7912"
-      HOURLY_RATE: "1"
+      TZ: Europe/Rome
+      # Metti QUI esattamente come risponda Spoolman.
+      # Se sta dietro SSL (self-signed o NPM), usa https + skip verify:
+      SPOOLMAN_URL: "https://192.168.10.164:7912"
+      SPOOLMAN_SKIP_TLS_VERIFY: "1"
       CURRENCY: "EUR"
-      # Opzionale: log verbosi
-      LOG_LEVEL: "info"
-    volumes:
-      - ./web:/app/web:ro
-      - ./profiles:/app/profiles:ro
-      - ./work:/app/work
-    # lsio usa s6; eseguo uvicorn tramite /init così restano i servizi di base
-    command: ["/init", "uvicorn", "slice_api:app", "--host", "0.0.0.0", "--port", "8088"]
+      HOURLY_RATE: "1"
     restart: unless-stopped

@@ -4,260 +4,630 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Magazzino Filamenti & Stima</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23fff' d='M12 50h40v4H12z'/%3E%3Crect x='16' y='10' width='32' height='36' rx='3' ry='3' fill='%23fff' stroke='%23000' stroke-width='2'/%3E%3Cpath d='M20 16h24M20 24h24M20 32h24M20 40h24' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧵</text></svg>">
   <style>
-    :root{
-      --bg:#0f172a; --card:#172235; --ring:#263548;
-      --text:#e8eef6; --muted:#93a4b8; --accent:#38bdf8;
-    }
+    :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
     .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
-    .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:18px}
-    @media (max-width:1100px){.grid{grid-template-columns:1fr}}
-    .card{background:var(--card);border:1px solid var(--ring);border-radius:16px;padding:16px}
-    h1{margin:0;font-weight:800;letter-spacing:.2px}
-    .muted{color:var(--muted)}
-    .row{display:flex;gap:12px;align-items:center}
-    .right{margin-left:auto}
-
-    /* Palette */
-    #palette{display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto;padding-right:6px}
-    .pill{display:flex;align-items:center;gap:14px;background:#0b172b40;border:1px solid #243244;border-radius:16px;padding:12px 14px}
-    .pill[aria-selected="true"]{outline:2px solid var(--accent);background:#0b263c}
-    .pill .title{font-weight:800}
-    .pill .sub{color:var(--muted)}
-    .pill .price{margin-left:auto;font-weight:800}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media (max-width:1000px){.grid{grid-template-columns:1fr}}
+    .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
+    h1{margin:0 0 12px;font-size:28px}
+    h2{margin:0 0 12px;font-size:18px}
+    .palette{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;padding-right:6px}
+    .pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;font-size:14px}
+    .pill[aria-selected="true"]{outline:2px solid var(--accent)}
     .left{display:flex;align-items:center;gap:12px}
-    .dot{
-      width:26px;height:26px;border-radius:50%;
-      border:2px solid rgba(255,255,255,.2);box-shadow:inset 0 0 0 2px rgba(0,0,0,.2);
-      background:#666;
-    }
+    .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
     .dot.transparent{
-      background:
-        conic-gradient(#0000 90deg,#fff 0 180deg,#0000 0) 0 0/10px 10px,
-        conic-gradient(#0000 90deg,#fff 0 180deg,#0000 0) 5px 5px/10px 10px,
-        #fff;
+      background-image:
+        linear-gradient(45deg,#999 25%,transparent 25%),
+        linear-gradient(-45deg,#999 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#999 75%),
+        linear-gradient(-45deg,transparent 75%,#999 75%);
+      background-size:8px 8px;
+      background-position:0 0,0 4px,4px -4px,-4px 0;
+      background-color:#fff;
     }
-
-    .section-title{font-size:1.25rem;font-weight:800;margin-bottom:10px}
-    .search{display:flex;align-items:center;background:#0b172b40;border:1px solid #243244;border-radius:12px;padding:10px 12px;margin-bottom:12px}
-    .search input{all:unset;width:100%}
-
-    #viewer{display:flex;align-items:center;justify-content:center;height:360px;border:1px dashed #2a3a52;border-radius:16px;color:#6e86a1}
-    .btn{background:var(--accent);color:#001018;font-weight:800;border:none;padding:10px 14px;border-radius:10px;cursor:pointer}
-    .btn:disabled{opacity:.6;cursor:not-allowed}
-    .muted-small{color:var(--muted);font-size:.9rem;margin-top:8px}
-    code{background:#0c1626;padding:2px 4px;border-radius:6px}
+    .title{font-weight:700}
+    .sub{font-size:12px;color:var(--muted)}
+    .price{font-weight:800}
+    .row{display:flex;gap:12px;align-items:center}
+    input[type="file"],input[type="text"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
+    button{cursor:pointer}
+    .hint{color:var(--muted);font-size:13px}
+    .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+    .viewer.drag{border-color:var(--accent); color:var(--accent)}
+    .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
+    @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
+    .out{margin-top:20px;font-size:18px;line-height:1.5;background:#0b1527;padding:12px;border-radius:10px;color:var(--text)}
+    .out b{color:var(--accent);font-size:20px}
+    .advanced { display: none; }
   </style>
+
+  <!-- Import map per Three r160+ (DEVE stare nel <head> prima dei moduli) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- Collante JSM → window.THREE -->
+  <script type="module">
+    import * as THREE_NS from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+    import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+    window.THREE = { ...THREE_NS, OrbitControls, STLLoader, OBJLoader, ThreeMFLoader };
+  </script>
 </head>
 <body>
   <div class="wrap">
-    <div class="row">
-      <h1>Magazzino Filamenti & Stima</h1>
-      <div class="right">
-        <button class="btn" onclick="reloadNow()">Aggiorna</button>
+    <h1>Magazzino Filamenti & Stima</h1>
+    <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Palette (seleziona materiale)</h2>
+        <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%" oninput="filterPalette()" />
+        <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
+        <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
+      </div>
+
+      <div class="card">
+        <h2>Viewer 3D (STL/3MF/OBJ)</h2>
+        <div id="viewer" class="viewer" aria-live="polite">Trascina qui un file o caricalo dal pulsante sotto.</div>
       </div>
     </div>
-    <div class="muted">Dati da Spoolman (<code id="currency">EUR</code>, €/kg). La stima oraria è lato server.</div>
 
-    <div class="grid" style="margin-top:14px">
-      <div class="card">
-        <div class="section-title">Palette (seleziona materiale)</div>
-        <div class="search"><input id="paletteFilter" placeholder="Filtra per materiale o colore" oninput="filterPalette()" /></div>
-        <div id="palette" role="listbox" aria-label="Filamenti da Spoolman"></div>
-        <div class="muted-small">Ogni voce: <b>Materiale</b> — <b>Nome colore</b> — <b>€/kg</b>. Aggiornamento periodico.</div>
+    <div class="card" style="margin-top:18px">
+      <h2>File & Stima</h2>
+      <div class="row" style="flex-wrap:wrap">
+        <input id="file" type="file" accept=".stl,.obj,.3mf,.zip,.step,.stp" multiple />
+        <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
+        <button id="btnFetch">Da URL</button>
+        <button id="btnDelete" style="margin-left:8px">Elimina</button>
       </div>
 
-      <div class="card">
-        <div class="section-title">Viewer 3D</div>
-        <div id="viewer">Caricamento in arrivo. Trascina un file (STL/3MF/OBJ) o usa il pulsante sotto.</div>
-        <div class="row" style="margin-top:10px">
-          <input type="file" id="fileInput" />
-          <button class="btn" disabled>Slice (coming)</button>
+      <div class="est">
+        <label class="advanced">Layer
+          <select id="layer_h">
+            <option value="0.20">0.20 mm</option>
+            <option value="0.16">0.16 mm</option>
+            <option value="0.12">0.12 mm</option>
+            <option value="0.28">0.28 mm</option>
+          </select>
+        </label>
+        <label class="advanced">Infill
+          <select id="infill">
+            <option value="15">15%</option>
+            <option value="5">5%</option>
+            <option value="20">20%</option>
+            <option value="40">40%</option>
+          </select>
+        </label>
+        <label class="advanced">Nozzle
+          <select id="nozzle">
+            <option value="0.4">0.4 mm</option>
+            <option value="0.6">0.6 mm</option>
+            <option value="0.2">0.2 mm</option>
+          </select>
+        </label>
+        <label class="advanced">Print speed
+          <select id="print_speed">
+            <option value="40">40 mm/s</option>
+            <option value="60" selected>60 mm/s</option>
+            <option value="80">80 mm/s</option>
+            <option value="100">100 mm/s</option>
+            <option value="160">160 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="250">250 mm/s</option>
+          </select>
+        </label>
+        <label class="advanced">Travel speed
+          <select id="travel_speed">
+            <option value="100">100 mm/s</option>
+            <option value="150" selected>150 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="300">300 mm/s</option>
+            <option value="500">500 mm/s</option>
+          </select>
+        </label>
+        <label>Preset
+          <select id="preset">
+            <option value="x1c_standard_020" selected>Standard</option>
+            <optgroup label="Bambu X1C">
+              <option value="x1c_standard_020">0.20 Standard</option>
+              <option value="x1c_quality_016">0.16 Quality</option>
+              <option value="x1c_fine_012">0.12 Fine</option>
+              <option value="x1c_draft_028">0.28 Draft</option>
+              <option value="x1c_strength_020">0.20 Strength</option>
+              <option value="x1c_lightning_020">0.20 Lightning</option>
+              <option value="x1c_ultrafine_008">0.08 Ultra Fine</option>
+            </optgroup>
+          </select>
+        </label>
+        <div style="display:flex;align-items:end">
+          <button id="btnEstimate">Stima</button>
         </div>
       </div>
+
+      <div id="out" class="out"></div>
+    </div>
+  </div>
+
+  <button id="btnWizard" title="Apri guida" style="position:fixed;top:16px;right:16px;background:var(--card);border:1px solid var(--ring);color:var(--accent);padding:8px 12px;border-radius:12px;font-size:14px;z-index:1000;cursor:pointer">Guida</button>
+
+  <div id="wizard" class="wizard-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:999;">
+    <div class="wizard-box" style="max-width:600px;margin:10% auto;background:var(--card);color:var(--text);padding:24px;border-radius:16px;box-shadow:0 0 12px rgba(0,0,0,0.5);">
+      <h2 style="margin-top:0">Benvenuto!</h2>
+      <p>Questa guida ti accompagna ai passi per ottenere una stima:</p>
+      <ol style="line-height:1.6">
+        <li><b>Scegli un materiale</b> dalla palette.</li>
+        <li><b>Carica il modello</b> (STL/3MF/OBJ o URL).</li>
+        <li><b>Scegli il preset</b> (X1C di default).</li>
+        <li><b>Premi Stima</b> per G-code, tempi e costi.</li>
+      </ol>
+      <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
     </div>
   </div>
 
   <script>
-    // -------------------------------
-    // Config
-    // -------------------------------
-    const REFRESH_MS = 60000; // 60 s
-    let items = [];
-    let selectedKey = null;
-    let colorOverrides = {}; // caricato da colors.json
-
-    // -------------------------------
-    // Colori: override + fallback HSV
-    // -------------------------------
-    function hexToRgb(hex){
-      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec((hex||"").trim());
-      if(!m) return {r:127,g:127,b:127};
-      return {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)};
+    // ---------- util colore ----------
+    function hexNorm(h){
+      if(!h) return '#777777';
+      let s=String(h).trim();
+      if(!s.startsWith('#')) s='#'+s;
+      return s.toUpperCase();
     }
-    function classifyHSVName(hex){
-      const h = (hex||"#777777").replace("#","");
-      if(h.length!==6) return "Colore";
-
-      const r = parseInt(h.slice(0,2),16)/255;
-      const g = parseInt(h.slice(2,4),16)/255;
-      const b = parseInt(h.slice(4,6),16)/255;
-
-      const max = Math.max(r,g,b), min = Math.min(r,g,b);
-      const v = max;
-      const d = max - min;
-      const s = max===0 ? 0 : d/max;
-      let hh = 0;
+    function hexToRgb(hex){
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
+      return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:119,g:119,b:119};
+    }
+    function rgbToHsv(r,g,b){
+      r/=255; g/=255; b/=255;
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      const d = max-min;
+      let h=0;
       if(d!==0){
         switch(max){
-          case r: hh = ((g-b)/d + (g<b?6:0)); break;
-          case g: hh = ((b-r)/d + 2); break;
-          case b: hh = ((r-g)/d + 4); break;
+          case r: h = ((g-b)/d + (g<b?6:0)); break;
+          case g: h = ((b-r)/d + 2); break;
+          case b: h = ((r-g)/d + 4); break;
         }
-        hh *= 60;
+        h*=60;
+      }
+      const s = max===0?0:d/max;
+      const v = max;
+      return {h,s,v};
+    }
+    function near(a,b,eps){ return Math.abs(a-b)<=eps; }
+
+    // nome colore coerente con HSV + regole
+    function nameFromHex(hex, isTransparent){
+      hex = hexNorm(hex);
+      if(isTransparent) return 'Trasparente';
+      const {r,g,b}=hexToRgb(hex);
+      const {h,s,v}=rgbToHsv(r,g,b); // h in [0,360), s,v in [0,1]
+
+      // grigi / bianchi / neri
+      if(s < 0.10){
+        if(v > 0.90) return 'Bianco';
+        if(v < 0.15) return 'Nero';
+        return 'Grigio';
       }
 
-      if(s < 0.08){
-        if(v < 0.12) return "Nero";
-        if(v > 0.88) return "Bianco";
-        return "Grigio";
-      }
+      // marrone (arancio scuro)
+      if(h>=15 && h<40 && v<0.60) return 'Marrone';
 
-      // Oro PRIMA di Arancione
-      if(hh >= 40 && hh < 55 && s > 0.40 && v > 0.60) return "Oro";
+      // oro dedicato
+      if(h>=40 && h<55 && s>0.40 && v>0.60) return 'Oro';
 
-      // Rosa / Fucsia
-      if((hh >= 295 && hh < 350) || (hh >= 350 && s < 0.20 && v > 0.85)) return "Rosa";
-      if(hh >= 10 && hh < 40 && s < 0.20 && v > 0.85) return "Rosa";
-
-      if(hh < 10 || hh >= 350) return "Rosso";
-      if(hh >= 10 && hh < 40) return "Arancione";
-      if(hh >= 55 && hh < 65) return "Giallo";
-      if(hh >= 65 && hh < 170) return "Verde";
-      if(hh >= 170 && hh < 190) return "Ciano";
-      if(hh >= 190 && hh < 255) return "Blu";
-      if(hh >= 255 && hh < 295) return "Viola";
-
-      return "Colore";
-    }
-    function nameFor(hex, isTransparent, apiName){
-      if(isTransparent) return "Trasparente";
-      const H = (hex||"").toUpperCase();
-      if(apiName && apiName.trim()) return apiName;               // preferisci nome di Spoolman se presente
-      if(colorOverrides[H]) return colorOverrides[H];             // override esterni
-      return classifyHSVName(H);                                  // fallback HSV
+      // fasce principali
+      if(h<15 || h>=345) return 'Rosso';
+      if(h>=15 && h<40)  return 'Arancione';
+      if(h>=55 && h<75)  return 'Giallo';
+      if(h>=75 && h<160) return 'Verde';
+      if(h>=160 && h<190) return 'Ciano';
+      if(h>=190 && h<255) return 'Blu';
+      if(h>=255 && h<295) return 'Viola';
+      if(h>=295 && h<345) return 'Rosa';
+      return 'N/D';
     }
 
-    // -------------------------------
-    // Render palette
-    // -------------------------------
-    function render(list){
-      const box = document.getElementById("palette");
-      box.innerHTML = "";
+    // coerenza: se il nome fornito è palesemente sbagliato rispetto all'hex, ricalcolo
+    function coherentName(hex, given, isTransparent){
+      const auto = nameFromHex(hex, isTransparent);
+      if(!given) return auto;
+      const g = String(given).trim().toLowerCase();
+      const a = String(auto).toLowerCase();
+      // se sono equivalenti o sinonimi, tiene quello di Spoolman
+      const syn = {
+        'fucsia':'fucsia','magenta':'magenta','azzurro':'azzurro','gold':'gold','transparent':'trasparente','translucent':'trasparente'
+      };
+      const g2 = syn[g] || g;
+      if(g2===a) return given;
 
-      list
-        .slice()
-        .sort((a,b)=> (a.material||"").localeCompare(b.material||"") || (a.color_hex||"").localeCompare(b.color_hex||""))
-        .forEach((it, idx)=>{
-          const hex = (it.color_hex || "#777777").toUpperCase();
-          const isTr = !!it.is_transparent;
-          const label = nameFor(hex, isTr, it.color_name);
-          const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : "n/d";
-          const key = `${it.material}|${hex}|${it.diameter}|${isTr}|${label}|${idx}`;
+      // se differenza macroscopica (es. g=bianco ma hex non è vicino al bianco) → usa auto
+      const hx = hexNorm(hex);
+      if(g.includes('bianco') && hx!=='#FFFFFF') return auto;
+      if(g.includes('trasp')) return 'Trasparente';
+      // preferisci auto se dato è in un altro cluster (es. blu vs viola, arancione vs oro)
+      return auto;
+    }
 
-          const row = document.createElement("div");
-          row.className = "pill";
-          row.setAttribute("role","option");
-          row.setAttribute("aria-selected", selectedKey===key ? "true" : "false");
-          row.onclick = ()=>{ selectedKey = key; render(list); };
+    // ---------- stato ----------
+    let selectedKey = null;
+    let currentViewerUrl = null;
+    let selectedMachine = "generic";
+    let inventoryItems = [];
+    const REFRESH_MS = 60000; // 60 s
 
-          const left = document.createElement("div");
-          left.className = "left";
+    // ---------- palette ----------
+    async function loadPalette(){
+      const res = await fetch('/inventory?nocache='+Date.now());
+      const data = await res.json();
+      const raw = Array.isArray(data.items) ? data.items : [];
 
-          const dot = document.createElement("span");
-          dot.className = "dot" + (isTr ? " transparent" : "");
-          if(!isTr){ dot.style.backgroundColor = hex; }
+      inventoryItems = raw.map((it,i)=>{
+        // campi robusti dal backend
+        const hex = hexNorm(it.color_hex || it.hex || '#777777');
+        const is_transparent = Boolean(it.is_transparent) || /(transpar|traspar)/i.test(String(it.color_name||''));
+        const color_name = coherentName(hex, it.color_name, is_transparent);
+        const key = it.key || `${(it.material||'mat')}_${hex}_${i}`;
+        return { ...it, color: hex, key, is_transparent, color_name };
+      });
 
-          const col = document.createElement("div");
-          const t1 = document.createElement("div");
-          t1.className = "title";
-          t1.textContent = it.material || "N/D";
+      renderPalette(inventoryItems);
+    }
 
-          const t2 = document.createElement("div");
-          t2.className = "sub";
-          t2.textContent = label + (isTr ? "" : ` (${hex})`);
+    function filterPalette(){
+      const term = (document.getElementById('paletteFilter').value || '').trim().toLowerCase();
+      if(!term){ renderPalette(inventoryItems); return; }
+      const filtered = inventoryItems.filter(it => {
+        const mat = (it.material || '').toLowerCase();
+        const colorName = (it.color_name || '').toLowerCase();
+        return mat.includes(term) || colorName.includes(term);
+      });
+      renderPalette(filtered);
+    }
 
-          col.appendChild(t1);
-          col.appendChild(t2);
+    // ---------- preset handling ----------
+    const PRESETS = {
+      "": { machine: "generic", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 60, travel_speed: 150 },
+      "x1c_standard_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
+      "x1c_quality_016":  { machine: "bambu_x1c", layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
+      "x1c_fine_012":     { machine: "bambu_x1c", layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
+      "x1c_draft_028":    { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 },
+      "x1c_strength_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 50, nozzle: 0.4, print_speed: 180, travel_speed: 500 },
+      "x1c_lightning_020":{ machine: "bambu_x1c", layer_h: 0.20, infill: 10, nozzle: 0.4, print_speed: 300, travel_speed: 500 },
+      "x1c_ultrafine_008":{ machine: "bambu_x1c", layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 }
+    };
 
-          const priceEl = document.createElement("div");
-          priceEl.className = "price";
-          priceEl.textContent = price;
+    function applyPreset(key){
+      const p = PRESETS[key] || PRESETS[""];
+      selectedMachine = p.machine || "generic";
+      if(p.layer_h!=null)      document.getElementById('layer_h').value = p.layer_h.toFixed(2);
+      if(p.infill!=null)       document.getElementById('infill').value   = String(p.infill);
+      if(p.nozzle!=null)       document.getElementById('nozzle').value   = p.nozzle.toFixed(1);
+      if(p.print_speed!=null)  document.getElementById('print_speed').value = String(p.print_speed);
+      if(p.travel_speed!=null) document.getElementById('travel_speed').value = String(p.travel_speed);
+    }
 
-          left.appendChild(dot);
-          left.appendChild(col);
+    function renderPalette(items){
+      const box = document.getElementById('palette');
+      box.innerHTML = '';
+      items
+        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color_name||'').localeCompare(b.color_name||'') )
+        .forEach(it=>{
+          const hex = hexNorm(it.color);
+          const price = (it.price_per_kg!=null) ? `${Number(it.price_per_kg).toFixed(2)} ${it.currency||'EUR'}/kg` : 'n/d';
+          const colorName = it.color_name || nameFromHex(hex, it.is_transparent);
 
-          row.appendChild(left);
-          row.appendChild(priceEl);
+          const row = document.createElement('div');
+          row.className='pill';
+          row.setAttribute('role','option');
+          row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
+          row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
+          row.onclick = () => {
+            selectedKey = it.key;
+            [...box.children].forEach(c => c.setAttribute('aria-selected', 'false'));
+            row.setAttribute('aria-selected', 'true');
+            if (currentViewerUrl) setTimeout(() => { showViewer(currentViewerUrl, window.__lastModelName || null); }, 0);
+          };
 
+          const left = document.createElement('div'); left.className='left';
+          const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
+          if(!it.is_transparent){ dot.style.backgroundColor = hex; }
+          dot.title = colorName; dot.setAttribute('aria-hidden','true');
+
+          const col = document.createElement('div');
+          const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
+          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = colorName;
+          col.appendChild(t1); col.appendChild(t2);
+
+          left.appendChild(dot); left.appendChild(col);
+          const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
+
+          row.appendChild(left); row.appendChild(priceEl);
           box.appendChild(row);
         });
     }
 
-    function filterPalette(){
-      const q = (document.getElementById("paletteFilter").value || "").trim().toLowerCase();
-      if(!q){ render(items); return; }
-      const f = items.filter(it=>{
-        const name = nameFor(it.color_hex, it.is_transparent, it.color_name).toLowerCase();
-        const mat  = (it.material||"").toLowerCase();
-        return name.includes(q) || mat.includes(q);
-      });
-      render(f);
+    // ---------- upload / fetch ----------
+    async function uploadFileOrBlob(file){
+      const v = document.getElementById('viewer');
+      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello…'; }
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/upload_model', {method:'POST', body: fd});
+      if(!r.ok){ alert('Upload fallito'); return; }
+      const j = await r.json();
+      showViewer(j.viewer_url, j.filename);
     }
-    function reloadNow(){ loadAll(true); }
 
-    async function loadColors(){
-      try{
-        const res = await fetch("./colors.json", {cache:"no-cache"});
-        if(res.ok){
-          colorOverrides = await res.json();
+    async function fetchFromUrl(){
+      const url = document.getElementById('url').value.trim();
+      if(!url){ alert('Inserisci una URL'); return; }
+      const v = document.getElementById('viewer');
+      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello da URL...'; }
+      const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
+      const j = await r.json();
+      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
+    }
+
+    const viewer = document.getElementById('viewer');
+    viewer.addEventListener('dragenter', e => { e.preventDefault(); viewer.classList.add('drag'); });
+    viewer.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect='copy'; viewer.classList.add('drag'); });
+    viewer.addEventListener('dragleave', e => { if(!viewer.contains(e.relatedTarget)) viewer.classList.remove('drag'); });
+    viewer.addEventListener('drop',      e => {
+      e.preventDefault(); viewer.classList.remove('drag');
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ uploadFileOrBlob(f); }
+    });
+
+    const fileInput = document.getElementById('file');
+    fileInput.addEventListener('change', () => {
+      const files = fileInput.files; if(!files || !files.length) return;
+      for(const f of files){ if(f) uploadFileOrBlob(f); }
+      fileInput.value = '';
+    });
+
+    const btnDelete = document.getElementById('btnDelete');
+    btnDelete.addEventListener('click', () => {
+      const v = document.getElementById('viewer');
+      v.innerHTML = 'Trascina qui un file o caricalo dal pulsante sotto.';
+      v.classList.remove('drag');
+      window.__lastModelName = null;
+      currentViewerUrl = null;
+      fileInput.value = '';
+      document.getElementById('out').innerHTML = '';
+    });
+
+    /**
+     * Viewer 3D
+     */
+    function showViewer(path, name){
+      currentViewerUrl = path;
+      window.__lastModelName = name;
+      const viewer = document.getElementById('viewer');
+      viewer.innerHTML = '';
+      viewer.classList.remove('drag');
+
+      const THREE = window.THREE;
+      if(!THREE || !THREE.WebGLRenderer){
+        const enc = encodeURI(path);
+        viewer.innerHTML = `<a href="${enc}" target="_blank" style="color:var(--accent)">${enc}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
+
+      const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
+      const safePath = encodeURI(path);
+      let loader;
+      if(extMatch === 'stl' && THREE.STLLoader){
+        loader = new THREE.STLLoader();
+      } else if(extMatch === 'obj' && THREE.OBJLoader){
+        loader = new THREE.OBJLoader();
+      } else if(extMatch === '3mf' && THREE.ThreeMFLoader){
+        loader = new THREE.ThreeMFLoader();
+      } else {
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
+
+      const width = viewer.clientWidth;
+      const height = viewer.clientHeight;
+      const canvas = document.createElement('div');
+      canvas.style.width = '100%';
+      canvas.style.height = height + 'px';
+      viewer.appendChild(canvas);
+
+      const scene = new THREE.Scene();
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
+      scene.background = new THREE.Color(bg);
+      const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio || 1);
+      renderer.setSize(width, height);
+      canvas.appendChild(renderer.domElement);
+
+      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambient);
+      const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+      directional.position.set(3, 10, 5);
+      scene.add(directional);
+
+      loader.load(safePath, (result) => {
+        let object;
+        const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+        let hex = hexNorm(sel.color || '#AAAAAA');
+        const col = new THREE.Color(hex);
+        const isTransp = Boolean(sel.is_transparent);
+
+        if(extMatch === 'stl'){
+          const material = new THREE.MeshStandardMaterial({
+            color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
+            metalness: 0.1, roughness: 0.8
+          });
+          object = new THREE.Mesh(result, material);
         } else {
-          colorOverrides = {};
+          object = result;
+          object.traverse((child) => {
+            if(child.isMesh){
+              let mat = child.material;
+              if(Array.isArray(mat)) mat = mat.map(m => m.clone());
+              else if(mat) mat = mat.clone();
+              if(mat){
+                const apply = (m)=>{ m.color = col.clone(); m.transparent=isTransp; m.opacity=isTransp?0.6:1.0; };
+                if(Array.isArray(mat)) mat.forEach(apply); else apply(mat);
+                child.material = mat;
+              }
+            }
+          });
         }
-      }catch{ colorOverrides = {}; }
+        scene.add(object);
+
+        const box = new THREE.Box3().setFromObject(object);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const fov = camera.fov * (Math.PI / 180);
+        let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+        camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
+        camera.near = Math.max(0.001, maxDim / 100);
+        camera.far  = Math.max(10,    maxDim * 100);
+        camera.updateProjectionMatrix();
+        controls.target.copy(center);
+        controls.update();
+
+        (function animate(){
+          requestAnimationFrame(animate);
+          controls.update();
+          renderer.render(scene, camera);
+        })();
+
+      }, undefined, (error) => {
+        // Fallback STL da 3MF
+        if (extMatch === '3mf') {
+          let stlPath = path.replace(/\.3mf(\?.*)?$/i, '.stl$1');
+          const bust = (stlPath.includes('?') ? '&' : '?') + 'nocache=' + Date.now();
+          stlPath += bust;
+
+          fetch(stlPath, { method: 'GET' })
+            .then(async (r) => {
+              if (!r.ok) throw new Error('STL non trovato: ' + r.status);
+              const ct = r.headers.get('content-type') || '';
+              const buf = await r.arrayBuffer();
+              if (ct.includes('text/html') || buf.byteLength < 84) {
+                throw new Error('STL non valido o troppo corto (' + buf.byteLength + ' B)');
+              }
+              const stlLoader = new THREE.STLLoader();
+              const geom = stlLoader.parse(buf);
+
+              const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+              let hex = hexNorm(sel.color || '#AAAAAA');
+              const col = new THREE.Color(hex);
+              const isTransp = Boolean(sel.is_transparent);
+              const material = new THREE.MeshStandardMaterial({
+                color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
+                metalness: 0.1, roughness: 0.8
+              });
+              const object = new THREE.Mesh(geom, material);
+              scene.add(object);
+
+              const box = new THREE.Box3().setFromObject(object);
+              const size = box.getSize(new THREE.Vector3());
+              const center = box.getCenter(new THREE.Vector3());
+              const maxDim = Math.max(size.x, size.y, size.z) || 1;
+              const fov = camera.fov * (Math.PI / 180);
+              const cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+              camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
+              camera.near = Math.max(0.001, maxDim / 100);
+              camera.far  = Math.max(10,    maxDim * 100);
+              camera.updateProjectionMatrix();
+              controls.target.copy(center);
+              controls.update();
+            })
+            .catch(() => {
+              const link = encodeURI(path);
+              viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+            });
+        } else {
+          const link = encodeURI(path);
+          viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+        }
+      });
+
+      document.getElementById('out').innerHTML = '';
     }
 
-    async function loadInventory(){
-      const url = `/api/spools?nocache=${Date.now()}`;
-      const res = await fetch(url, {cache:"no-cache"});
-      if(!res.ok){
-        throw new Error(`HTTP ${res.status}`);
+    async function estimate(){
+      if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
+      if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
+      const estimateBtn = document.getElementById('btnEstimate');
+      if(estimateBtn){ estimateBtn.disabled = true; estimateBtn.textContent = 'Calcolo...'; }
+      const outEl = document.getElementById('out');
+      if(outEl){ outEl.innerHTML = 'Calcolo in corso...'; }
+
+      const payload = {
+        viewer_url: currentViewerUrl,
+        inventory_key: selectedKey,
+        machine: selectedMachine,
+        settings: {
+          machine: selectedMachine,
+          layer_h: parseFloat(document.getElementById('layer_h').value || '0.2'),
+          infill: parseFloat(document.getElementById('infill').value || '15'),
+          nozzle: parseFloat(document.getElementById('nozzle').value || '0.4'),
+          print_speed: parseFloat(document.getElementById('print_speed').value || '60'),
+          travel_speed: parseFloat(document.getElementById('travel_speed').value || '150')
+        }
+      };
+      const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const j = await r.json();
+      if(!r.ok){
+        alert(j.detail || 'Errore stima');
+        if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
+        return;
       }
-      const data = await res.json();
-      document.getElementById("currency").textContent = data.currency || "EUR";
-      return Array.isArray(data.items) ? data.items : [];
+      const tmin = Math.round(j.time_s/60);
+      document.getElementById('out').innerHTML = `
+        Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
+        Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
+        Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
+      `;
+      if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
     }
 
-    async function loadAll(force){
-      try{
-        if(force) await loadColors();
-        items = await loadInventory();
-        render(items);
-      }catch(e){
-        const box = document.getElementById("palette");
-        box.innerHTML = `<div class="muted">Errore caricamento: <code>${String(e)}</code></div>`;
+    document.getElementById('btnFetch').onclick  = fetchFromUrl;
+    document.getElementById('btnEstimate').onclick  = estimate;
+
+    const presetSel = document.getElementById('preset');
+    if(presetSel){
+      presetSel.onchange = () => applyPreset(presetSel.value);
+      if (!selectedMachine || selectedMachine === 'generic') {
+        presetSel.value = 'x1c_standard_020';
+        applyPreset('x1c_standard_020');
       }
     }
+    loadPalette();
+    setInterval(loadPalette, REFRESH_MS);
 
-    // Avvio
-    (async ()=>{
-      await loadColors();
-      await loadAll(false);
-      setInterval(()=>loadAll(false), REFRESH_MS);
-    })();
+    const wizardBtn = document.getElementById('btnWizard');
+    const wizardOverlay = document.getElementById('wizard');
+    const wizardClose = document.getElementById('wizardClose');
+    if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; }; }
+    if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
   </script>
 </body>
 </html>

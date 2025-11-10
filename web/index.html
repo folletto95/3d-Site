@@ -4,409 +4,600 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Magazzino Filamenti & Stima</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧵</text></svg>">
   <style>
-    :root{--bg:#0f172a;--card:#0b1629;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8;--pill:#111827}
+    :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
     .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
-    .h1{font-size:clamp(24px,3.2vw,36px);font-weight:800;margin:0 0 8px}
-    .muted{color:var(--muted)}
-    .card{background:var(--card);border-radius:16px;padding:14px 14px}
-    .sec{margin-top:14px}
-
-    /* Palette */
-    .filter{width:100%;padding:14px 16px;border-radius:12px;border:1px solid #223047;background:#0a1323;color:var(--text)}
-    .list{margin-top:12px;border-top:1px solid #152035}
-    .row{display:flex;align-items:center;gap:14px;padding:14px;border-bottom:1px solid #152035;border-radius:12px}
-    .row:hover{background:#0c1931}
-    .left{display:flex;align-items:center;gap:14px;min-width:0}
-    .right{margin-left:auto;font-weight:700;white-space:nowrap}
-    .mat{font-weight:700}
-    .sub{color:var(--muted);font-size:14px}
-
-    /* Swatch */
-    .swatch{width:28px;height:28px;border-radius:999px;border:2px solid #1b2a44;flex:0 0 auto;position:relative;overflow:hidden;box-shadow:0 0 0 2px #0a1323}
-    .swatch.transparent::before{content:"";position:absolute;inset:0;background:
-      conic-gradient(#c7c7c7 0 25%,#ededed 0 50%,#c7c7c7 0 75%,#ededed 0 100%);
-      background-size:10px 10px;filter:contrast(1.1)}
-    .swatch.transparent::after{content:"";position:absolute;inset:0;background:linear-gradient(45deg,rgba(0,0,0,.15),rgba(0,0,0,0))}
-
-    /* Helper badges */
-    .pill{background:var(--pill);border:1px solid #1f2937;border-radius:999px;padding:2px 8px;font-size:12px;color:#9fb1c9}
-    .head{display:flex;justify-content:space-between;align-items:center}
-    .guide{padding:6px 10px;border-radius:10px;border:1px solid #24324a;background:#0c1730;color:#b8c6dc}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media (max-width:1000px){.grid{grid-template-columns:1fr}}
+    .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
+    h1{margin:0 0 12px;font-size:28px}
+    h2{margin:0 0 12px;font-size:18px}
+    .palette{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;padding-right:6px}
+    .pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;font-size:14px}
+    .pill[aria-selected="true"]{outline:2px solid var(--accent)}
+    .left{display:flex;align-items:center;gap:12px}
+    .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
+    .dot.transparent{
+      background-image:
+        linear-gradient(45deg,#999 25%,transparent 25%),
+        linear-gradient(-45deg,#999 25%,transparent 25%),
+        linear-gradient(45deg,transparent 75%,#999 75%),
+        linear-gradient(-45deg,transparent 75%,#999 75%);
+      background-size:8px 8px;
+      background-position:0 0,0 4px,4px -4px,-4px 0;
+      background-color:#fff;
+    }
+    .title{font-weight:700}
+    .sub{font-size:12px;color:var(--muted)}
+    .price{font-weight:800}
+    .row{display:flex;gap:12px;align-items:center}
+    input[type="file"],input[type="text"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
+    button{cursor:pointer}
+    .hint{color:var(--muted);font-size:13px}
+    .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+    .viewer.drag{border-color:var(--accent); color:var(--accent)}
+    .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
+    @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
+    .out{margin-top:20px;font-size:18px;line-height:1.5;background:#0b1527;padding:12px;border-radius:10px;color:var(--text)}
+    .out b{color:var(--accent);font-size:20px}
+    .advanced { display: none; }
   </style>
+
+  <!-- Import map per Three r160+ (DEVE stare nel <head> prima dei moduli) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <!-- Modulo collante: importa i JSM moderni e li riallaccia a window.THREE -->
+<script type="module">
+  import * as THREE_NS from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+  import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+  import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+
+  // Creiamo un NUOVO oggetto estendibile con tutte le cose di THREE
+  window.THREE = {
+    ...THREE_NS,
+    OrbitControls,
+    STLLoader,
+    OBJLoader,
+    ThreeMFLoader,
+  };
+
+  console.log('Three r' + window.THREE.REVISION, 'addons ok:', !!window.THREE.STLLoader);
+</script>
 </head>
 <body>
   <div class="wrap">
-    <div class="head">
-      <h1 class="h1">Magazzino Filamenti & Stima</h1>
-      <a class="guide" href="#">Guida</a>
+    <h1>Magazzino Filamenti & Stima</h1>
+    <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Palette (seleziona materiale)</h2>
+        <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%; box-sizing:border-box" oninput="filterPalette()" />
+        <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
+        <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
+      </div>
+
+      <div class="card">
+        <h2>Viewer 3D (STL/3MF/OBJ)</h2>
+        <div id="viewer" class="viewer" aria-live="polite">Trascina qui un file o caricalo dal pulsante sotto.</div>
+      </div>
     </div>
-    <p class="muted">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
 
-    <section class="card sec">
-      <h2 style="margin:0 0 10px">Palette (seleziona materiale)</h2>
-      <input id="q" class="filter" placeholder="Filtra per materiale o colore" />
-      <div id="palette" class="list" role="list"></div>
-      <p class="muted" style="margin:10px 0 0">Ogni voce: <b>Materiale</b> — <span id="legend">Nome colore</span> — <span>€/kg</span>. Aggiornamento ogni <span id="refresh">60</span> s.</p>
-    </section>
+    <div class="card" style="margin-top:18px">
+      <h2>File & Stima</h2>
+      <div class="row" style="flex-wrap:wrap">
+        <input id="file" type="file" accept=".stl,.obj,.3mf,.zip,.step,.stp" multiple />
+        <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
+        <button id="btnFetch">Da URL</button>
+        <button id="btnDelete" style="margin-left:8px">Elimina</button>
+      </div>
 
-    <!-- Il resto della pagina (viewer, upload, stima) resta invariato nel tuo progetto -->
+      <div class="est">
+        <label class="advanced">Layer
+          <select id="layer_h">
+            <option value="0.20">0.20 mm</option>
+            <option value="0.16">0.16 mm</option>
+            <option value="0.12">0.12 mm</option>
+            <option value="0.28">0.28 mm</option>
+          </select>
+        </label>
+        <label class="advanced">Infill
+          <select id="infill">
+            <option value="15">15%</option>
+            <option value="5">5%</option>
+            <option value="20">20%</option>
+            <option value="40">40%</option>
+          </select>
+        </label>
+        <label class="advanced">Nozzle
+          <select id="nozzle">
+            <option value="0.4">0.4 mm</option>
+            <option value="0.6">0.6 mm</option>
+            <option value="0.2">0.2 mm</option>
+          </select>
+        </label>
+        <label class="advanced">Print speed
+          <select id="print_speed">
+            <option value="40">40 mm/s</option>
+            <option value="60" selected>60 mm/s</option>
+            <option value="80">80 mm/s</option>
+            <option value="100">100 mm/s</option>
+            <option value="160">160 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="250">250 mm/s</option>
+          </select>
+        </label>
+        <label class="advanced">Travel speed
+          <select id="travel_speed">
+            <option value="100">100 mm/s</option>
+            <option value="150" selected>150 mm/s</option>
+            <option value="200">200 mm/s</option>
+            <option value="300">300 mm/s</option>
+            <option value="500">500 mm/s</option>
+          </select>
+        </label>
+        <label>Preset
+          <select id="preset">
+            <option value="x1c_standard_020" selected>Standard</option>
+            <optgroup label="Bambu X1C">
+              <option value="x1c_standard_020">0.20 Standard</option>
+              <option value="x1c_quality_016">0.16 Quality</option>
+              <option value="x1c_fine_012">0.12 Fine</option>
+              <option value="x1c_draft_028">0.28 Draft</option>
+              <option value="x1c_strength_020">0.20 Strength</option>
+              <option value="x1c_lightning_020">0.20 Lightning</option>
+              <option value="x1c_ultrafine_008">0.08 Ultra Fine</option>
+            </optgroup>
+          </select>
+        </label>
+        <div style="display:flex;align-items:end">
+          <button id="btnEstimate">Stima</button>
+        </div>
+      </div>
+
+      <div id="out" class="out"></div>
+    </div>
+  </div>
+
+  <button id="btnWizard" title="Apri guida" style="position:fixed;top:16px;right:16px;background:var(--card);border:1px solid var(--ring);color:var(--accent);padding:8px 12px;border-radius:12px;font-size:14px;z-index:1000;cursor:pointer">Guida</button>
+
+  <div id="wizard" class="wizard-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:999;">
+    <div class="wizard-box" style="max-width:600px;margin:10% auto;background:var(--card);color:var(--text);padding:24px;border-radius:16px;box-shadow:0 0 12px rgba(0,0,0,0.5);">
+      <h2 style="margin-top:0">Benvenuto!</h2>
+      <p>Questa guida ti accompagnerà nei passi necessari per ottenere una stima:</p>
+      <ol style="line-height:1.6">
+        <li><b>Scegli un materiale:</b> usa il filtro per cercare per nome o colore e seleziona una riga dalla palette a sinistra.</li>
+        <li><b>Carica il modello:</b> trascina un file STL/3MF/OBJ nella casella del viewer o clicca sul campo per selezionarlo.</li>
+        <li><b>Scegli un preset:</b> il menu a tendina propone profili per la Bambu X1C; la voce "Standard" è la più comune.</li>
+        <li><b>Calcola la stima:</b> premi <em>Stima</em> per generare il G-code, stimare tempo e costi e scaricare il file.</li>
+        <li><b>Visualizza i risultati:</b> nella sezione "Tempo, Filamento, Costo" appariranno le stime dettagliate.</li>
+      </ol>
+      <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
+    </div>
   </div>
 
   <script>
-    const REFRESH_SEC = 60;
-    const API_URL = '/api/spools';
+    // ---------- util colore ----------
+    function hexToRgb(hex){
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
+      return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:127,g:127,b:127};
+    }
+    const BASIC = {
+      "#000000":"Nero", "#FFFFFF":"Bianco", "#FF0000":"Rosso", "#00FF00":"Verde",
+      "#0000FF":"Blu", "#FFFF00":"Giallo", "#FFA500":"Arancione", "#FFC0CB":"Rosa",
+      "#800080":"Viola", "#A52A2A":"Marrone", "#808080":"Grigio", "#00FFFF":"Ciano",
+      "#008000":"Verde scuro", "#ADD8E6":"Azzurro", "#FFD700":"Oro", "#8B4513":"Terra di Siena"
+    };
+    function nearestBasicName(hex){
+      const {r,g,b}=hexToRgb(hex), entries=Object.entries(BASIC);
+      let best=entries[0][0], dist=1e9;
+      for(const [h] of entries){
+        const c=hexToRgb(h); const d=(r-c.r)**2+(g-c.g)**2+(b-c.b)**2;
+        if(d<dist){dist=d;best=h}
+      }
+      return BASIC[best];
+    }
 
-    // Override esatti per gli HEX noti (preferenza assoluta)
-    const HEX_OVERRIDES = {
-      '#FFFFFF':'Bianco',
-      '#000000':'Nero',
-      '#020000':'Nero',
-      '#A6A9AA':'Grigio',
-      '#0A2989':'Blu',
-      '#5E43B7':'Viola',
-      '#FF9016':'Arancione',
-      '#00AE42':'Verde',
-      '#F4EE2A':'Giallo',
-      '#E4BD68':'Oro',          // ⇦ specifica richiesta
-      '#EC008C':'Fucsia',       // rosa acceso/magenta
-      '#F5547C':'Rosa',         // rosa/corallo
-      '#9D432C':'Mattone',      // rosso bruno
-      '#C12E1F':'Rosso',
-      '#F7E6DE':'Rosa chiaro'   // non rosso: molto chiaro/pelle
+    // ---------- stato ----------
+    let selectedKey = null;
+    let currentViewerUrl = null;
+    let selectedMachine = "generic";
+    let inventoryItems = [];
+    const REFRESH_MS = 60000; // 60 s
+
+    // ---------- palette ----------
+    async function loadPalette(){
+      const res = await fetch('/inventory?nocache='+Date.now());
+      const data = await res.json();
+      const raw = Array.isArray(data.items) ? data.items : [];
+      // Normalizza i campi dal backend e assegna una chiave stabile
+      inventoryItems = raw.map((it,i)=>{
+        let hex = (it.color_hex || it.hex || '#777777');
+        hex = (typeof hex === 'string' ? hex : '#777777');
+        hex = hex.startsWith('#') ? hex.toUpperCase() : ('#'+hex).toUpperCase();
+        const key = it.key || `${(it.material||'mat')}_${hex}_${i}`;
+        const is_transparent = Boolean(it.is_transparent) || String(it.color_name||'').toLowerCase().includes('traspar');
+        return { ...it, color: hex, key, is_transparent };
+      });
+      renderPalette(inventoryItems);
+    }
+
+    function filterPalette(){
+      const term = (document.getElementById('paletteFilter').value || '').trim().toLowerCase();
+      if(!term){ renderPalette(inventoryItems); return; }
+      const filtered = inventoryItems.filter(it => {
+        const mat = (it.material || '').toLowerCase();
+        const colorName = (it.color_name || nearestBasicName(it.color)).toLowerCase();
+        return mat.includes(term) || colorName.includes(term);
+      });
+      renderPalette(filtered);
+    }
+
+    // ---------- preset handling ----------
+    const PRESETS = {
+      "": { machine: "generic", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 60, travel_speed: 150 },
+      "x1c_standard_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
+      "x1c_quality_016":  { machine: "bambu_x1c", layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
+      "x1c_fine_012":     { machine: "bambu_x1c", layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
+      "x1c_draft_028":    { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 },
+      "x1c_strength_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 50, nozzle: 0.4, print_speed: 180, travel_speed: 500 },
+      "x1c_lightning_020":{ machine: "bambu_x1c", layer_h: 0.20, infill: 10, nozzle: 0.4, print_speed: 300, travel_speed: 500 },
+      "x1c_ultrafine_008":{ machine: "bambu_x1c", layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 }
     };
 
-    function clamp01(x){return Math.max(0,Math.min(1,x));}
-    function hexToRgb(hex){
-      hex = hex.trim();
-      if(!hex) return null;
-      if(hex[0] !== '#') hex = '#' + hex;
-      if(hex.length === 4){ hex = '#' + [...hex.slice(1)].map(c=>c+c).join(''); }
-      if(hex.length !== 7) return null;
-      const n = parseInt(hex.slice(1),16);
-      return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};
-    }
-    function rgbToHsl({r,g,b}){
-      r/=255; g/=255; b/=255;
-      const max=Math.max(r,g,b), min=Math.min(r,g,b);
-      let h,s,l=(max+min)/2;
-      if(max===min){ h=0; s=0; }
-      else{
-        const d=max-min;
-        s = l>0.5? d/(2-max-min) : d/(max+min);
-        switch(max){
-          case r: h=(g-b)/d+(g<b?6:0); break;
-          case g: h=(b-r)/d+2; break;
-          case b: h=(r-g)/d+4; break;
-        }
-        h*=60;
-      }
-      return {h, s, l};
-    }
-
-    function basicItalianNameFromHSL(hsl){
-      const {h,s,l} = hsl; const S=s, L=l;
-      if(L>=0.94 && S<=0.1) return 'Bianco';
-      if(L<=0.08) return 'Nero';
-      if(S<=0.10) return 'Grigio';
-      // Oro: intorno a 45°, saturazione medio-alta, luminanza media
-      if(h>=36 && h<=56 && S>=0.35 && L>=0.40 && L<=0.75) return 'Oro';
-      if(h<12 || h>=345) return 'Rosso';
-      if(h<28) return 'Arancione';
-      if(h<45) return 'Giallo';
-      if(h<80) return 'Verde';
-      if(h<190) return 'Ciano';
-      if(h<250) return 'Blu';
-      if(h<290) return 'Viola';
-      if(h<330) return 'Magenta';
-      return 'Rosa';
-    }
-
-    function humanColorName(hex){
-      if(!hex) return null;
-      const key = hex.toUpperCase();
-      if(HEX_OVERRIDES[key]) return HEX_OVERRIDES[key];
-      const rgb = hexToRgb(key); if(!rgb) return null;
-      const hsl = rgbToHsl(rgb);
-      return basicItalianNameFromHSL(hsl);
-    }
-
-    function normalizeItem(it){
-      const hex = (it.color_hex || it.hex || '').toString();
-      const normHex = hex && hex[0] === '#' ? hex : (hex ? '#' + hex : '');
-      const upper = normHex.toUpperCase();
-      const isTransparent = !!it.is_transparent;
-      // Nome colore: priorità ai dati backend
-      let name = it.color_name || it.name || humanColorName(upper) || 'Sconosciuto';
-      // Se trasparente, etichettiamo come "Trasparente" se il backend non lo ha già messo
-      if(isTransparent && !/trasparen/i.test(name)) name = 'Trasparente';
-      // Chiave stabile per selezione
-      const key = `${it.material||'mat'}|${upper||'nohex'}|${name}`;
-      return {
-        ...it,
-        color_hex: upper||null,
-        color_name: name,
-        is_transparent: isTransparent,
-        key
-      };
+    function applyPreset(key){
+      const p = PRESETS[key] || PRESETS[""];
+      selectedMachine = p.machine || "generic";
+      if(p.layer_h!=null)      document.getElementById('layer_h').value = p.layer_h.toFixed(2);
+      if(p.infill!=null)       document.getElementById('infill').value   = String(p.infill);
+      if(p.nozzle!=null)       document.getElementById('nozzle').value   = p.nozzle.toFixed(1);
+      if(p.print_speed!=null)  document.getElementById('print_speed').value = String(p.print_speed);
+      if(p.travel_speed!=null) document.getElementById('travel_speed').value = String(p.travel_speed);
     }
 
     function renderPalette(items){
-      const root = document.getElementById('palette');
-      root.innerHTML = '';
-      const q = document.getElementById('q').value.trim().toLowerCase();
-      const filtered = items.filter(it=>{
-        const hay = `${it.material||''} ${it.color_name||''}`.toLowerCase();
-        return !q || hay.includes(q);
-      });
-      for(const it of filtered){
-        const row = document.createElement('div'); row.className = 'row'; row.setAttribute('role','listitem');
-        const sw = document.createElement('div'); sw.className = 'swatch';
-        if(it.is_transparent){ sw.classList.add('transparent'); }
-        if(it.color_hex){ sw.style.background = it.color_hex; }
-        const left = document.createElement('div'); left.className = 'left';
-        left.appendChild(sw);
-        const texts = document.createElement('div');
-        const mat = document.createElement('div'); mat.className='mat'; mat.textContent = it.material||'—';
-        const sub = document.createElement('div'); sub.className='sub'; sub.textContent = it.color_name||'—';
-        texts.appendChild(mat); texts.appendChild(sub);
-        left.appendChild(texts);
-        const price = document.createElement('div'); price.className='right';
-        price.textContent = (it.price_per_kg!=null? `${Number(it.price_per_kg).toFixed(2)} EUR/kg` : '—');
-        row.appendChild(left); row.appendChild(price);
-        root.appendChild(row);
-      }
+      const box = document.getElementById('palette');
+      box.innerHTML = '';
+      items
+        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color_name||'').localeCompare(b.color_name||'') )
+        .forEach(it=>{
+          const hex = (it.color || '#777777').toUpperCase();
+          const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
+          const colorName = it.color_name || nearestBasicName(hex);
+
+          const row = document.createElement('div');
+          row.className='pill';
+          row.setAttribute('role','option');
+          row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
+          row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
+          row.onclick = () => {
+            selectedKey = it.key;
+            [...box.children].forEach(c => c.setAttribute('aria-selected', 'false'));
+            row.setAttribute('aria-selected', 'true');
+            if (currentViewerUrl) {
+              setTimeout(() => { showViewer(currentViewerUrl, window.__lastModelName || null); }, 0);
+            }
+          };
+
+          const left = document.createElement('div'); left.className='left';
+          const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
+          if(!it.is_transparent){ dot.style.backgroundColor = hex; }
+          dot.title = colorName;
+          dot.setAttribute('aria-hidden','true');
+
+          const col = document.createElement('div');
+          const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
+          const t2 = document.createElement('div'); t2.className='sub'; t2.textContent = colorName;
+          col.appendChild(t1); col.appendChild(t2);
+
+          left.appendChild(dot); left.appendChild(col);
+          const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
+
+          row.appendChild(left); row.appendChild(priceEl);
+          box.appendChild(row);
+        });
     }
 
-    async function loadAndRender(){
-      try{
-        const r = await fetch(API_URL, {cache:'no-store'});
-        if(!r.ok) throw new Error('HTTP '+r.status);
-        const data = await r.json();
-        const raw = Array.isArray(data)? data : (data.items || []);
-        const items = raw.map(normalizeItem);
-        window.__PALETTE = items; // debug
-        renderPalette(items);
-      }catch(err){
-        console.error('Errore caricamento palette', err);
-        const root = document.getElementById('palette');
-        root.innerHTML = `<div class="sub" style="padding:12px">Errore nel leggere i dati: ${String(err)}</div>`;
-      }
+    // ---------- upload / fetch ----------
+    async function uploadFileOrBlob(file){
+      const v = document.getElementById('viewer');
+      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello…'; }
+      const fd = new FormData(); fd.append('file', file);
+      const r = await fetch('/upload_model', {method:'POST', body: fd});
+      if(!r.ok){ alert('Upload fallito'); return; }
+      const j = await r.json();
+      showViewer(j.viewer_url, j.filename);
     }
 
-    document.getElementById('q').addEventListener('input', ()=>{
-      if(window.__PALETTE) renderPalette(window.__PALETTE);
+    async function fetchFromUrl(){
+      const url = document.getElementById('url').value.trim();
+      if(!url){ alert('Inserisci una URL'); return; }
+      const v = document.getElementById('viewer');
+      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello da URL...'; }
+      const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
+      const j = await r.json();
+      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
+    }
+
+    const viewer = document.getElementById('viewer');
+    viewer.addEventListener('dragenter', e => { e.preventDefault(); viewer.classList.add('drag'); });
+    viewer.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect='copy'; viewer.classList.add('drag'); });
+    viewer.addEventListener('dragleave', e => { if(!viewer.contains(e.relatedTarget)) viewer.classList.remove('drag'); });
+    viewer.addEventListener('drop',      e => {
+      e.preventDefault(); viewer.classList.remove('drag');
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f){ uploadFileOrBlob(f); }
     });
 
-    loadAndRender();
-    setInterval(loadAndRender, REFRESH_SEC*1000);
-  </script>
-</body>
-</html>
-<!doctype html>
-<html lang="it">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Magazzino Filamenti & Stima</title>
-  <style>
-    :root{--bg:#0f172a;--card:#0b1629;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8;--pill:#111827}
-    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
-    .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
-    .h1{font-size:clamp(24px,3.2vw,36px);font-weight:800;margin:0 0 8px}
-    .muted{color:var(--muted)}
-    .card{background:var(--card);border-radius:16px;padding:14px 14px}
-    .sec{margin-top:14px}
+    const fileInput = document.getElementById('file');
+    fileInput.addEventListener('change', () => {
+      const files = fileInput.files; if(!files || !files.length) return;
+      for(const f of files){ if(f) uploadFileOrBlob(f); }
+      fileInput.value = '';
+    });
 
-    /* Palette */
-    .filter{width:100%;padding:14px 16px;border-radius:12px;border:1px solid #223047;background:#0a1323;color:var(--text)}
-    .list{margin-top:12px;border-top:1px solid #152035}
-    .row{display:flex;align-items:center;gap:14px;padding:14px;border-bottom:1px solid #152035;border-radius:12px}
-    .row:hover{background:#0c1931}
-    .left{display:flex;align-items:center;gap:14px;min-width:0}
-    .right{margin-left:auto;font-weight:700;white-space:nowrap}
-    .mat{font-weight:700}
-    .sub{color:var(--muted);font-size:14px}
+    const btnDelete = document.getElementById('btnDelete');
+    btnDelete.addEventListener('click', () => {
+      const v = document.getElementById('viewer');
+      v.innerHTML = 'Trascina qui un file o caricalo dal pulsante sotto.';
+      v.classList.remove('drag');
+      window.__lastModelName = null;
+      currentViewerUrl = null;
+      fileInput.value = '';
+      document.getElementById('out').innerHTML = '';
+    });
 
-    /* Swatch */
-    .swatch{width:28px;height:28px;border-radius:999px;border:2px solid #1b2a44;flex:0 0 auto;position:relative;overflow:hidden;box-shadow:0 0 0 2px #0a1323}
-    .swatch.transparent::before{content:"";position:absolute;inset:0;background:
-      conic-gradient(#c7c7c7 0 25%,#ededed 0 50%,#c7c7c7 0 75%,#ededed 0 100%);
-      background-size:10px 10px;filter:contrast(1.1)}
-    .swatch.transparent::after{content:"";position:absolute;inset:0;background:linear-gradient(45deg,rgba(0,0,0,.15),rgba(0,0,0,0))}
+    /**
+     * Render 3D model
+     */
+    function showViewer(path, name){
+      currentViewerUrl = path;
+      window.__lastModelName = name;
+      const viewer = document.getElementById('viewer');
+      viewer.innerHTML = '';
+      viewer.classList.remove('drag');
 
-    /* Helper badges */
-    .pill{background:var(--pill);border:1px solid #1f2937;border-radius:999px;padding:2px 8px;font-size:12px;color:#9fb1c9}
-    .head{display:flex;justify-content:space-between;align-items:center}
-    .guide{padding:6px 10px;border-radius:10px;border:1px solid #24324a;background:#0c1730;color:#b8c6dc}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="head">
-      <h1 class="h1">Magazzino Filamenti & Stima</h1>
-      <a class="guide" href="#">Guida</a>
-    </div>
-    <p class="muted">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
+      const THREE = window.THREE;
+      if(!THREE || !THREE.WebGLRenderer){
+        const enc = encodeURI(path);
+        viewer.innerHTML = `<a href="${enc}" target="_blank" style="color:var(--accent)">${enc}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
 
-    <section class="card sec">
-      <h2 style="margin:0 0 10px">Palette (seleziona materiale)</h2>
-      <input id="q" class="filter" placeholder="Filtra per materiale o colore" />
-      <div id="palette" class="list" role="list"></div>
-      <p class="muted" style="margin:10px 0 0">Ogni voce: <b>Materiale</b> — <span id="legend">Nome colore</span> — <span>€/kg</span>. Aggiornamento ogni <span id="refresh">60</span> s.</p>
-    </section>
+      const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
+      const safePath = encodeURI(path);
+      let loader;
+      if(extMatch === 'stl' && THREE.STLLoader){
+        loader = new THREE.STLLoader();
+      } else if(extMatch === 'obj' && THREE.OBJLoader){
+        loader = new THREE.OBJLoader();
+      } else if(extMatch === '3mf' && THREE.ThreeMFLoader){
+        loader = new THREE.ThreeMFLoader();
+      } else {
+        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
+        document.getElementById('out').innerHTML = '';
+        return;
+      }
 
-    <!-- Il resto della pagina (viewer, upload, stima) resta invariato nel tuo progetto -->
-  </div>
+      const width = viewer.clientWidth;
+      const height = viewer.clientHeight;
+      const canvas = document.createElement('div');
+      canvas.style.width = '100%';
+      canvas.style.height = height + 'px';
+      viewer.appendChild(canvas);
 
-  <script>
-    const REFRESH_SEC = 60;
-    const API_URL = '/api/spools';
+      const scene = new THREE.Scene();
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
+      scene.background = new THREE.Color(bg);
+      const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio || 1);
+      renderer.setSize(width, height);
+      canvas.appendChild(renderer.domElement);
 
-    // Override esatti per gli HEX noti (preferenza assoluta)
-    const HEX_OVERRIDES = {
-      '#FFFFFF':'Bianco',
-      '#000000':'Nero',
-      '#020000':'Nero',
-      '#A6A9AA':'Grigio',
-      '#0A2989':'Blu',
-      '#5E43B7':'Viola',
-      '#FF9016':'Arancione',
-      '#00AE42':'Verde',
-      '#F4EE2A':'Giallo',
-      '#E4BD68':'Oro',          // ⇦ specifica richiesta
-      '#EC008C':'Fucsia',       // rosa acceso/magenta
-      '#F5547C':'Rosa',         // rosa/corallo
-      '#9D432C':'Mattone',      // rosso bruno
-      '#C12E1F':'Rosso',
-      '#F7E6DE':'Rosa chiaro'   // non rosso: molto chiaro/pelle
-    };
+      // Usa i controlli dal namespace THREE (moduli jsm riallacciati)
+      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
 
-    function clamp01(x){return Math.max(0,Math.min(1,x));}
-    function hexToRgb(hex){
-      hex = hex.trim();
-      if(!hex) return null;
-      if(hex[0] !== '#') hex = '#' + hex;
-      if(hex.length === 4){ hex = '#' + [...hex.slice(1)].map(c=>c+c).join(''); }
-      if(hex.length !== 7) return null;
-      const n = parseInt(hex.slice(1),16);
-      return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};
-    }
-    function rgbToHsl({r,g,b}){
-      r/=255; g/=255; b/=255;
-      const max=Math.max(r,g,b), min=Math.min(r,g,b);
-      let h,s,l=(max+min)/2;
-      if(max===min){ h=0; s=0; }
-      else{
-        const d=max-min;
-        s = l>0.5? d/(2-max-min) : d/(max+min);
-        switch(max){
-          case r: h=(g-b)/d+(g<b?6:0); break;
-          case g: h=(b-r)/d+2; break;
-          case b: h=(r-g)/d+4; break;
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambient);
+      const directional = new THREE.DirectionalLight(0xffffff, 0.8);
+      directional.position.set(3, 10, 5);
+      scene.add(directional);
+
+      loader.load(safePath, (result) => {
+        let object;
+        const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+        let hex = sel.color || '#aaaaaa';
+        if(!hex.startsWith('#')) hex = '#' + hex;
+        const col = new THREE.Color(hex);
+        const isTransp = Boolean(sel.is_transparent);
+
+        if(extMatch === 'stl'){
+          const material = new THREE.MeshStandardMaterial({
+            color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
+            metalness: 0.1, roughness: 0.8
+          });
+          object = new THREE.Mesh(result, material);
+        } else {
+          object = result;
+          object.traverse((child) => {
+            if(child.isMesh){
+              let mat = child.material;
+              if(Array.isArray(mat)) mat = mat.map(m => m.clone());
+              else if(mat) mat = mat.clone();
+              if(mat){
+                const apply = (m)=>{ m.color = col.clone(); m.transparent=isTransp; m.opacity=isTransp?0.6:1.0; };
+                if(Array.isArray(mat)) mat.forEach(apply); else apply(mat);
+                child.material = mat;
+              }
+            }
+          });
         }
-        h*=60;
-      }
-      return {h, s, l};
-    }
+        scene.add(object);
 
-    function basicItalianNameFromHSL(hsl){
-      const {h,s,l} = hsl; const S=s, L=l;
-      if(L>=0.94 && S<=0.1) return 'Bianco';
-      if(L<=0.08) return 'Nero';
-      if(S<=0.10) return 'Grigio';
-      // Oro: intorno a 45°, saturazione medio-alta, luminanza media
-      if(h>=36 && h<=56 && S>=0.35 && L>=0.40 && L<=0.75) return 'Oro';
-      if(h<12 || h>=345) return 'Rosso';
-      if(h<28) return 'Arancione';
-      if(h<45) return 'Giallo';
-      if(h<80) return 'Verde';
-      if(h<190) return 'Ciano';
-      if(h<250) return 'Blu';
-      if(h<290) return 'Viola';
-      if(h<330) return 'Magenta';
-      return 'Rosa';
-    }
+        const box = new THREE.Box3().setFromObject(object);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const fov = camera.fov * (Math.PI / 180);
+        let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+        camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
+        camera.near = Math.max(0.001, maxDim / 100);
+        camera.far  = Math.max(10,    maxDim * 100);
+        camera.updateProjectionMatrix();
+        controls.target.copy(center);
+        controls.update();
 
-    function humanColorName(hex){
-      if(!hex) return null;
-      const key = hex.toUpperCase();
-      if(HEX_OVERRIDES[key]) return HEX_OVERRIDES[key];
-      const rgb = hexToRgb(key); if(!rgb) return null;
-      const hsl = rgbToHsl(rgb);
-      return basicItalianNameFromHSL(hsl);
-    }
+        (function animate(){
+          requestAnimationFrame(animate);
+          controls.update();
+          renderer.render(scene, camera);
+        })();
+      
+      }, undefined, (error) => {
+        console.error('Errore nel caricamento del modello 3D:', error);
 
-    function normalizeItem(it){
-      const hex = (it.color_hex || it.hex || '').toString();
-      const normHex = hex && hex[0] === '#' ? hex : (hex ? '#' + hex : '');
-      const upper = normHex.toUpperCase();
-      const isTransparent = !!it.is_transparent;
-      // Nome colore: priorità ai dati backend
-      let name = it.color_name || it.name || humanColorName(upper) || 'Sconosciuto';
-      // Se trasparente, etichettiamo come "Trasparente" se il backend non lo ha già messo
-      if(isTransparent && !/trasparen/i.test(name)) name = 'Trasparente';
-      // Chiave stabile per selezione
-      const key = `${it.material||'mat'}|${upper||'nohex'}|${name}`;
-      return {
-        ...it,
-        color_hex: upper||null,
-        color_name: name,
-        is_transparent: isTransparent,
-        key
-      };
-    }
+        // Fallback: se era un 3MF, prova a caricare lo STL convertito (con cache-busting)
+        if (extMatch === '3mf') {
+          let stlPath = path.replace(/\.3mf(\?.*)?$/i, '.stl$1');
+          const bust = (stlPath.includes('?') ? '&' : '?') + 'nocache=' + Date.now();
+          stlPath += bust;
 
-    function renderPalette(items){
-      const root = document.getElementById('palette');
-      root.innerHTML = '';
-      const q = document.getElementById('q').value.trim().toLowerCase();
-      const filtered = items.filter(it=>{
-        const hay = `${it.material||''} ${it.color_name||''}`.toLowerCase();
-        return !q || hay.includes(q);
+          fetch(stlPath, { method: 'GET' })
+            .then(async (r) => {
+              if (!r.ok) throw new Error('STL non trovato: ' + r.status);
+              const ct = r.headers.get('content-type') || '';
+              const buf = await r.arrayBuffer();
+              // Se riceviamo HTML o un buffer troppo corto, consideriamo lo STL invalido
+              if (ct.includes('text/html') || buf.byteLength < 84) {
+                throw new Error('STL non valido o troppo corto (' + buf.byteLength + ' B)');
+              }
+              const stlLoader = new THREE.STLLoader();
+              const geom = stlLoader.parse(buf);
+
+              // Materiale/centro come nel ramo STL standard
+              const sel = inventoryItems.find(x => x.key === selectedKey) || {};
+              let hex = sel.color || '#aaaaaa';
+              if (!hex.startsWith('#')) hex = '#' + hex;
+              const col = new THREE.Color(hex);
+              const isTransp = Boolean(sel.is_transparent);
+              const material = new THREE.MeshStandardMaterial({
+                color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
+                metalness: 0.1, roughness: 0.8
+              });
+              const object = new THREE.Mesh(geom, material);
+              scene.add(object);
+
+              const box = new THREE.Box3().setFromObject(object);
+              const size = box.getSize(new THREE.Vector3());
+              const center = box.getCenter(new THREE.Vector3());
+              const maxDim = Math.max(size.x, size.y, size.z) || 1;
+              const fov = camera.fov * (Math.PI / 180);
+              const cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+              camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
+              camera.near = Math.max(0.001, maxDim / 100);
+              camera.far  = Math.max(10,    maxDim * 100);
+              camera.updateProjectionMatrix();
+              controls.target.copy(center);
+              controls.update();
+            })
+            .catch((e2) => {
+              console.error('Fallback STL fallito:', e2);
+              const link = encodeURI(path);
+              viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+            });
+        } else {
+          const link = encodeURI(path);
+          viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
+        }
       });
-      for(const it of filtered){
-        const row = document.createElement('div'); row.className = 'row'; row.setAttribute('role','listitem');
-        const sw = document.createElement('div'); sw.className = 'swatch';
-        if(it.is_transparent){ sw.classList.add('transparent'); }
-        if(it.color_hex){ sw.style.background = it.color_hex; }
-        const left = document.createElement('div'); left.className = 'left';
-        left.appendChild(sw);
-        const texts = document.createElement('div');
-        const mat = document.createElement('div'); mat.className='mat'; mat.textContent = it.material||'—';
-        const sub = document.createElement('div'); sub.className='sub'; sub.textContent = it.color_name||'—';
-        texts.appendChild(mat); texts.appendChild(sub);
-        left.appendChild(texts);
-        const price = document.createElement('div'); price.className='right';
-        price.textContent = (it.price_per_kg!=null? `${Number(it.price_per_kg).toFixed(2)} EUR/kg` : '—');
-        row.appendChild(left); row.appendChild(price);
-        root.appendChild(row);
-      }
+
+
+      document.getElementById('out').innerHTML = '';
     }
 
-    async function loadAndRender(){
-      try{
-        const r = await fetch(API_URL, {cache:'no-store'});
-        if(!r.ok) throw new Error('HTTP '+r.status);
-        const data = await r.json();
-        const raw = Array.isArray(data)? data : (data.items || []);
-        const items = raw.map(normalizeItem);
-        window.__PALETTE = items; // debug
-        renderPalette(items);
-      }catch(err){
-        console.error('Errore caricamento palette', err);
-        const root = document.getElementById('palette');
-        root.innerHTML = `<div class="sub" style="padding:12px">Errore nel leggere i dati: ${String(err)}</div>`;
+    async function estimate(){
+      if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
+      if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
+      const estimateBtn = document.getElementById('btnEstimate');
+      if(estimateBtn){ estimateBtn.disabled = true; estimateBtn.textContent = 'Calcolo...'; }
+      const outEl = document.getElementById('out');
+      if(outEl){ outEl.innerHTML = 'Calcolo in corso...'; }
+
+      const payload = {
+        viewer_url: currentViewerUrl,
+        inventory_key: selectedKey,
+        machine: selectedMachine,
+        settings: {
+          machine: selectedMachine,
+          layer_h: parseFloat(document.getElementById('layer_h').value),
+          infill: parseFloat(document.getElementById('infill').value),
+          nozzle: parseFloat(document.getElementById('nozzle').value),
+          print_speed: parseFloat(document.getElementById('print_speed').value),
+          travel_speed: parseFloat(document.getElementById('travel_speed').value)
+        }
+      };
+      const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const j = await r.json();
+      if(!r.ok){
+        alert(j.detail || 'Errore stima');
+        if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
+        return;
       }
+      const tmin = Math.round(j.time_s/60);
+      document.getElementById('out').innerHTML = `
+        Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
+        Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
+        Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
+      `;
+      if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
     }
 
-    document.getElementById('q').addEventListener('input', ()=>{
-      if(window.__PALETTE) renderPalette(window.__PALETTE);
+    const fileInputEl = document.getElementById('file');
+    fileInputEl.addEventListener('change', () => {
+      const f = fileInputEl.files && fileInputEl.files[0];
+      if(f){
+        const v = document.getElementById('viewer');
+        v.classList.remove('drag');
+        v.textContent = 'Caricamento modello...';
+        uploadFileOrBlob(f);
+      }
     });
+    document.getElementById('btnFetch').onclick  = fetchFromUrl;
+    document.getElementById('btnEstimate').onclick  = estimate;
 
-    loadAndRender();
-    setInterval(loadAndRender, REFRESH_SEC*1000);
+    const presetSel = document.getElementById('preset');
+    if(presetSel){
+      presetSel.onchange = () => applyPreset(presetSel.value);
+      if (!selectedMachine || selectedMachine === 'generic') {
+        presetSel.value = 'x1c_standard_020';
+        applyPreset('x1c_standard_020');
+      }
+    }
+    loadPalette();
+    setInterval(loadPalette, REFRESH_MS);
+
+    const wizardBtn = document.getElementById('btnWizard');
+    const wizardOverlay = document.getElementById('wizard');
+    const wizardClose = document.getElementById('wizardClose');
+    if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; }; }
+    if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
   </script>
+
 </body>
 </html>

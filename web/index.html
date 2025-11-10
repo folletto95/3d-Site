@@ -7,7 +7,8 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧵</text></svg>">
   <style>
     :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
-    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
     .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
     @media (max-width:1000px){.grid{grid-template-columns:1fr}}
@@ -15,7 +16,7 @@
     h1{margin:0 0 12px;font-size:28px}
     h2{margin:0 0 12px;font-size:18px}
     .palette{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;padding-right:6px}
-    .pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;font-size:14px}
+    .pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;font-size:14px}
     .pill[aria-selected="true"]{outline:2px solid var(--accent)}
     .left{display:flex;align-items:center;gap:12px}
     .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
@@ -56,25 +57,15 @@
   }
   </script>
 
-  <!-- Modulo collante: importa i JSM moderni e li riallaccia a window.THREE -->
-<script type="module">
-  import * as THREE_NS from 'three';
-  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-  import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-  import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-  import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
-
-  // Creiamo un NUOVO oggetto estendibile con tutte le cose di THREE
-  window.THREE = {
-    ...THREE_NS,
-    OrbitControls,
-    STLLoader,
-    OBJLoader,
-    ThreeMFLoader,
-  };
-
-  console.log('Three r' + window.THREE.REVISION, 'addons ok:', !!window.THREE.STLLoader);
-</script>
+  <!-- Collante JSM → window.THREE -->
+  <script type="module">
+    import * as THREE_NS from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+    import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+    window.THREE = { ...THREE_NS, OrbitControls, STLLoader, OBJLoader, ThreeMFLoader };
+  </script>
 </head>
 <body>
   <div class="wrap">
@@ -84,7 +75,7 @@
     <div class="grid">
       <div class="card">
         <h2>Palette (seleziona materiale)</h2>
-        <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%; box-sizing:border-box" oninput="filterPalette()" />
+        <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%" oninput="filterPalette()" />
         <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
         <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
       </div>
@@ -176,13 +167,12 @@
   <div id="wizard" class="wizard-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:999;">
     <div class="wizard-box" style="max-width:600px;margin:10% auto;background:var(--card);color:var(--text);padding:24px;border-radius:16px;box-shadow:0 0 12px rgba(0,0,0,0.5);">
       <h2 style="margin-top:0">Benvenuto!</h2>
-      <p>Questa guida ti accompagnerà nei passi necessari per ottenere una stima:</p>
+      <p>Questa guida ti accompagna ai passi per ottenere una stima:</p>
       <ol style="line-height:1.6">
-        <li><b>Scegli un materiale:</b> usa il filtro per cercare per nome o colore e seleziona una riga dalla palette a sinistra.</li>
-        <li><b>Carica il modello:</b> trascina un file STL/3MF/OBJ nella casella del viewer o clicca sul campo per selezionarlo.</li>
-        <li><b>Scegli un preset:</b> il menu a tendina propone profili per la Bambu X1C; la voce "Standard" è la più comune.</li>
-        <li><b>Calcola la stima:</b> premi <em>Stima</em> per generare il G-code, stimare tempo e costi e scaricare il file.</li>
-        <li><b>Visualizza i risultati:</b> nella sezione "Tempo, Filamento, Costo" appariranno le stime dettagliate.</li>
+        <li><b>Scegli un materiale</b> dalla palette.</li>
+        <li><b>Carica il modello</b> (STL/3MF/OBJ o URL).</li>
+        <li><b>Scegli il preset</b> (X1C di default).</li>
+        <li><b>Premi Stima</b> per G-code, tempi e costi.</li>
       </ol>
       <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
     </div>
@@ -190,24 +180,86 @@
 
   <script>
     // ---------- util colore ----------
+    function hexNorm(h){
+      if(!h) return '#777777';
+      let s=String(h).trim();
+      if(!s.startsWith('#')) s='#'+s;
+      return s.toUpperCase();
+    }
     function hexToRgb(hex){
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
-      return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:127,g:127,b:127};
+      return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:119,g:119,b:119};
     }
-    const BASIC = {
-      "#000000":"Nero", "#FFFFFF":"Bianco", "#FF0000":"Rosso", "#00FF00":"Verde",
-      "#0000FF":"Blu", "#FFFF00":"Giallo", "#FFA500":"Arancione", "#FFC0CB":"Rosa",
-      "#800080":"Viola", "#A52A2A":"Marrone", "#808080":"Grigio", "#00FFFF":"Ciano",
-      "#008000":"Verde scuro", "#ADD8E6":"Azzurro", "#FFD700":"Oro", "#8B4513":"Terra di Siena"
-    };
-    function nearestBasicName(hex){
-      const {r,g,b}=hexToRgb(hex), entries=Object.entries(BASIC);
-      let best=entries[0][0], dist=1e9;
-      for(const [h] of entries){
-        const c=hexToRgb(h); const d=(r-c.r)**2+(g-c.g)**2+(b-c.b)**2;
-        if(d<dist){dist=d;best=h}
+    function rgbToHsv(r,g,b){
+      r/=255; g/=255; b/=255;
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      const d = max-min;
+      let h=0;
+      if(d!==0){
+        switch(max){
+          case r: h = ((g-b)/d + (g<b?6:0)); break;
+          case g: h = ((b-r)/d + 2); break;
+          case b: h = ((r-g)/d + 4); break;
+        }
+        h*=60;
       }
-      return BASIC[best];
+      const s = max===0?0:d/max;
+      const v = max;
+      return {h,s,v};
+    }
+    function near(a,b,eps){ return Math.abs(a-b)<=eps; }
+
+    // nome colore coerente con HSV + regole
+    function nameFromHex(hex, isTransparent){
+      hex = hexNorm(hex);
+      if(isTransparent) return 'Trasparente';
+      const {r,g,b}=hexToRgb(hex);
+      const {h,s,v}=rgbToHsv(r,g,b); // h in [0,360), s,v in [0,1]
+
+      // grigi / bianchi / neri
+      if(s < 0.10){
+        if(v > 0.90) return 'Bianco';
+        if(v < 0.15) return 'Nero';
+        return 'Grigio';
+      }
+
+      // marrone (arancio scuro)
+      if(h>=15 && h<40 && v<0.60) return 'Marrone';
+
+      // oro dedicato
+      if(h>=40 && h<55 && s>0.40 && v>0.60) return 'Oro';
+
+      // fasce principali
+      if(h<15 || h>=345) return 'Rosso';
+      if(h>=15 && h<40)  return 'Arancione';
+      if(h>=55 && h<75)  return 'Giallo';
+      if(h>=75 && h<160) return 'Verde';
+      if(h>=160 && h<190) return 'Ciano';
+      if(h>=190 && h<255) return 'Blu';
+      if(h>=255 && h<295) return 'Viola';
+      if(h>=295 && h<345) return 'Rosa';
+      return 'N/D';
+    }
+
+    // coerenza: se il nome fornito è palesemente sbagliato rispetto all'hex, ricalcolo
+    function coherentName(hex, given, isTransparent){
+      const auto = nameFromHex(hex, isTransparent);
+      if(!given) return auto;
+      const g = String(given).trim().toLowerCase();
+      const a = String(auto).toLowerCase();
+      // se sono equivalenti o sinonimi, tiene quello di Spoolman
+      const syn = {
+        'fucsia':'rosa','magenta':'rosa','azzurro':'blu chiaro','gold':'oro','transparent':'trasparente','translucent':'trasparente'
+      };
+      const g2 = syn[g] || g;
+      if(g2===a) return given;
+
+      // se differenza macroscopica (es. g=bianco ma hex non è vicino al bianco) → usa auto
+      const hx = hexNorm(hex);
+      if(g.includes('bianco') && hx!=='#FFFFFF') return auto;
+      if(g.includes('trasp')) return 'Trasparente';
+      // preferisci auto se dato è in un altro cluster (es. blu vs viola, arancione vs oro)
+      return auto;
     }
 
     // ---------- stato ----------
@@ -222,15 +274,16 @@
       const res = await fetch('/inventory?nocache='+Date.now());
       const data = await res.json();
       const raw = Array.isArray(data.items) ? data.items : [];
-      // Normalizza i campi dal backend e assegna una chiave stabile
+
       inventoryItems = raw.map((it,i)=>{
-        let hex = (it.color_hex || it.hex || '#777777');
-        hex = (typeof hex === 'string' ? hex : '#777777');
-        hex = hex.startsWith('#') ? hex.toUpperCase() : ('#'+hex).toUpperCase();
+        // campi robusti dal backend
+        const hex = hexNorm(it.color_hex || it.hex || '#777777');
+        const is_transparent = Boolean(it.is_transparent) || /(transpar|traspar)/i.test(String(it.color_name||''));
+        const color_name = coherentName(hex, it.color_name, is_transparent);
         const key = it.key || `${(it.material||'mat')}_${hex}_${i}`;
-        const is_transparent = Boolean(it.is_transparent) || String(it.color_name||'').toLowerCase().includes('traspar');
-        return { ...it, color: hex, key, is_transparent };
+        return { ...it, color: hex, key, is_transparent, color_name };
       });
+
       renderPalette(inventoryItems);
     }
 
@@ -239,7 +292,7 @@
       if(!term){ renderPalette(inventoryItems); return; }
       const filtered = inventoryItems.filter(it => {
         const mat = (it.material || '').toLowerCase();
-        const colorName = (it.color_name || nearestBasicName(it.color)).toLowerCase();
+        const colorName = (it.color_name || '').toLowerCase();
         return mat.includes(term) || colorName.includes(term);
       });
       renderPalette(filtered);
@@ -273,9 +326,9 @@
       items
         .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color_name||'').localeCompare(b.color_name||'') )
         .forEach(it=>{
-          const hex = (it.color || '#777777').toUpperCase();
-          const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';
-          const colorName = it.color_name || nearestBasicName(hex);
+          const hex = hexNorm(it.color);
+          const price = (it.price_per_kg!=null) ? `${Number(it.price_per_kg).toFixed(2)} ${it.currency||'EUR'}/kg` : 'n/d';
+          const colorName = it.color_name || nameFromHex(hex, it.is_transparent);
 
           const row = document.createElement('div');
           row.className='pill';
@@ -286,16 +339,13 @@
             selectedKey = it.key;
             [...box.children].forEach(c => c.setAttribute('aria-selected', 'false'));
             row.setAttribute('aria-selected', 'true');
-            if (currentViewerUrl) {
-              setTimeout(() => { showViewer(currentViewerUrl, window.__lastModelName || null); }, 0);
-            }
+            if (currentViewerUrl) setTimeout(() => { showViewer(currentViewerUrl, window.__lastModelName || null); }, 0);
           };
 
           const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
           if(!it.is_transparent){ dot.style.backgroundColor = hex; }
-          dot.title = colorName;
-          dot.setAttribute('aria-hidden','true');
+          dot.title = colorName; dot.setAttribute('aria-hidden','true');
 
           const col = document.createElement('div');
           const t1 = document.createElement('div'); t1.className='title'; t1.textContent = it.material || 'n/d';
@@ -360,7 +410,7 @@
     });
 
     /**
-     * Render 3D model
+     * Viewer 3D
      */
     function showViewer(path, name){
       currentViewerUrl = path;
@@ -408,7 +458,6 @@
       renderer.setSize(width, height);
       canvas.appendChild(renderer.domElement);
 
-      // Usa i controlli dal namespace THREE (moduli jsm riallacciati)
       const controls = new THREE.OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.1;
@@ -422,8 +471,7 @@
       loader.load(safePath, (result) => {
         let object;
         const sel = inventoryItems.find(x => x.key === selectedKey) || {};
-        let hex = sel.color || '#aaaaaa';
-        if(!hex.startsWith('#')) hex = '#' + hex;
+        let hex = hexNorm(sel.color || '#AAAAAA');
         const col = new THREE.Color(hex);
         const isTransp = Boolean(sel.is_transparent);
 
@@ -468,11 +516,9 @@
           controls.update();
           renderer.render(scene, camera);
         })();
-      
-      }, undefined, (error) => {
-        console.error('Errore nel caricamento del modello 3D:', error);
 
-        // Fallback: se era un 3MF, prova a caricare lo STL convertito (con cache-busting)
+      }, undefined, (error) => {
+        // Fallback STL da 3MF
         if (extMatch === '3mf') {
           let stlPath = path.replace(/\.3mf(\?.*)?$/i, '.stl$1');
           const bust = (stlPath.includes('?') ? '&' : '?') + 'nocache=' + Date.now();
@@ -483,17 +529,14 @@
               if (!r.ok) throw new Error('STL non trovato: ' + r.status);
               const ct = r.headers.get('content-type') || '';
               const buf = await r.arrayBuffer();
-              // Se riceviamo HTML o un buffer troppo corto, consideriamo lo STL invalido
               if (ct.includes('text/html') || buf.byteLength < 84) {
                 throw new Error('STL non valido o troppo corto (' + buf.byteLength + ' B)');
               }
               const stlLoader = new THREE.STLLoader();
               const geom = stlLoader.parse(buf);
 
-              // Materiale/centro come nel ramo STL standard
               const sel = inventoryItems.find(x => x.key === selectedKey) || {};
-              let hex = sel.color || '#aaaaaa';
-              if (!hex.startsWith('#')) hex = '#' + hex;
+              let hex = hexNorm(sel.color || '#AAAAAA');
               const col = new THREE.Color(hex);
               const isTransp = Boolean(sel.is_transparent);
               const material = new THREE.MeshStandardMaterial({
@@ -516,8 +559,7 @@
               controls.target.copy(center);
               controls.update();
             })
-            .catch((e2) => {
-              console.error('Fallback STL fallito:', e2);
+            .catch(() => {
               const link = encodeURI(path);
               viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
             });
@@ -526,7 +568,6 @@
           viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
         }
       });
-
 
       document.getElementById('out').innerHTML = '';
     }
@@ -545,11 +586,11 @@
         machine: selectedMachine,
         settings: {
           machine: selectedMachine,
-          layer_h: parseFloat(document.getElementById('layer_h').value),
-          infill: parseFloat(document.getElementById('infill').value),
-          nozzle: parseFloat(document.getElementById('nozzle').value),
-          print_speed: parseFloat(document.getElementById('print_speed').value),
-          travel_speed: parseFloat(document.getElementById('travel_speed').value)
+          layer_h: parseFloat(document.getElementById('layer_h').value || '0.2'),
+          infill: parseFloat(document.getElementById('infill').value || '15'),
+          nozzle: parseFloat(document.getElementById('nozzle').value || '0.4'),
+          print_speed: parseFloat(document.getElementById('print_speed').value || '60'),
+          travel_speed: parseFloat(document.getElementById('travel_speed').value || '150')
         }
       };
       const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
@@ -568,16 +609,6 @@
       if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
     }
 
-    const fileInputEl = document.getElementById('file');
-    fileInputEl.addEventListener('change', () => {
-      const f = fileInputEl.files && fileInputEl.files[0];
-      if(f){
-        const v = document.getElementById('viewer');
-        v.classList.remove('drag');
-        v.textContent = 'Caricamento modello...';
-        uploadFileOrBlob(f);
-      }
-    });
     document.getElementById('btnFetch').onclick  = fetchFromUrl;
     document.getElementById('btnEstimate').onclick  = estimate;
 
@@ -598,6 +629,5 @@
     if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; }; }
     if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
   </script>
-
 </body>
 </html>

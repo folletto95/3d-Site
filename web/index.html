@@ -209,7 +209,7 @@
     }
     function near(a,b,eps){ return Math.abs(a-b)<=eps; }
 
-    // nome colore coerente con HSV + regole di base (fallback)
+    // nome colore coerente con HSV + regole
     function nameFromHex(hex, isTransparent){
       hex = hexNorm(hex);
       if(isTransparent) return 'Trasparente';
@@ -241,21 +241,25 @@
       return 'N/D';
     }
 
-    // coerenza: teniamo il nome del backend/Spoolman, usiamo l'HEX solo come fallback
+    // coerenza: se il nome fornito è palesemente sbagliato rispetto all'hex, ricalcolo
     function coherentName(hex, given, isTransparent){
       const auto = nameFromHex(hex, isTransparent);
       if(!given) return auto;
+      const g = String(given).trim().toLowerCase();
+      const a = String(auto).toLowerCase();
+      // se sono equivalenti o sinonimi, tiene quello di Spoolman
+      const syn = {
+        'fucsia':'fucsia','magenta':'magenta','azzurro':'azzurro','gold':'gold','transparent':'trasparente','translucent':'trasparente'
+      };
+      const g2 = syn[g] || g;
+      if(g2===a) return given;
 
-      const g = String(given).trim();
-      const gl = g.toLowerCase();
-
-      // normalizza i vari "transparent / translucent / clear" in "Trasparente"
-      if(gl.includes('trasp') || gl.includes('transparent') || gl.includes('translucent') || gl.includes('clear')){
-        return 'Trasparente';
-      }
-
-      // in tutti gli altri casi fidati del nome che arriva dall'API (Spoolman/index)
-      return g;
+      // se differenza macroscopica (es. g=bianco ma hex non è vicino al bianco) → usa auto
+      const hx = hexNorm(hex);
+      if(g.includes('bianco') && hx!=='#FFFFFF') return auto;
+      if(g.includes('trasp')) return 'Trasparente';
+      // preferisci auto se dato è in un altro cluster (es. blu vs viola, arancione vs oro)
+      return auto;
     }
 
     // ---------- stato ----------
@@ -274,10 +278,7 @@
       inventoryItems = raw.map((it,i)=>{
         // campi robusti dal backend
         const hex = hexNorm(it.color_hex || it.hex || '#777777');
-        const nameStr = [it.color_name, it.name, it.material].filter(Boolean).join(' ');
-        const is_transparent =
-          Boolean(it.is_transparent) ||
-          /(transpar|traspar|translucent|clear)/i.test(nameStr);
+        const is_transparent = Boolean(it.is_transparent) || /(transpar|traspar)/i.test(String(it.color_name||''));
         const color_name = coherentName(hex, it.color_name, is_transparent);
         const key = it.key || `${(it.material||'mat')}_${hex}_${i}`;
         return { ...it, color: hex, key, is_transparent, color_name };

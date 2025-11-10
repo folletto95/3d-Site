@@ -209,7 +209,7 @@
     }
     function near(a,b,eps){ return Math.abs(a-b)<=eps; }
 
-    // nome colore coerente con HSV + regole
+    // nome colore coerente con HSV + regole di base (fallback)
     function nameFromHex(hex, isTransparent){
       hex = hexNorm(hex);
       if(isTransparent) return 'Trasparente';
@@ -241,25 +241,21 @@
       return 'N/D';
     }
 
-    // coerenza: se il nome fornito è palesemente sbagliato rispetto all'hex, ricalcolo
+    // coerenza: teniamo il nome del backend/Spoolman, usiamo l'HEX solo come fallback
     function coherentName(hex, given, isTransparent){
       const auto = nameFromHex(hex, isTransparent);
       if(!given) return auto;
-      const g = String(given).trim().toLowerCase();
-      const a = String(auto).toLowerCase();
-      // se sono equivalenti o sinonimi, tiene quello di Spoolman
-      const syn = {
-        'fucsia':'rosa','magenta':'rosa','azzurro':'blu chiaro','gold':'oro','transparent':'trasparente','translucent':'trasparente'
-      };
-      const g2 = syn[g] || g;
-      if(g2===a) return given;
 
-      // se differenza macroscopica (es. g=bianco ma hex non è vicino al bianco) → usa auto
-      const hx = hexNorm(hex);
-      if(g.includes('bianco') && hx!=='#FFFFFF') return auto;
-      if(g.includes('trasp')) return 'Trasparente';
-      // preferisci auto se dato è in un altro cluster (es. blu vs viola, arancione vs oro)
-      return auto;
+      const g = String(given).trim();
+      const gl = g.toLowerCase();
+
+      // normalizza i vari "transparent / translucent / clear" in "Trasparente"
+      if(gl.includes('trasp') || gl.includes('transparent') || gl.includes('translucent') || gl.includes('clear')){
+        return 'Trasparente';
+      }
+
+      // in tutti gli altri casi fidati del nome che arriva dall'API (Spoolman/index)
+      return g;
     }
 
     // ---------- stato ----------
@@ -278,7 +274,10 @@
       inventoryItems = raw.map((it,i)=>{
         // campi robusti dal backend
         const hex = hexNorm(it.color_hex || it.hex || '#777777');
-        const is_transparent = Boolean(it.is_transparent) || /(transpar|traspar)/i.test(String(it.color_name||''));
+        const nameStr = [it.color_name, it.name, it.material].filter(Boolean).join(' ');
+        const is_transparent =
+          Boolean(it.is_transparent) ||
+          /(transpar|traspar|translucent|clear)/i.test(nameStr);
         const color_name = coherentName(hex, it.color_name, is_transparent);
         const key = it.key || `${(it.material||'mat')}_${hex}_${i}`;
         return { ...it, color: hex, key, is_transparent, color_name };
@@ -629,142 +628,5 @@
     if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; }; }
     if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
   </script>
-
-<!-- COLOR PATCH START -->
-<script>
-(function(){
-  // --- Mappa override HEX -> nome desiderato ---
-  const COLOR_OVERRIDES = {
-    "#FFFFFF":"Bianco",
-    "#000000":"Nero",
-    "#020000":"Nero",
-    "#A6A9AA":"Grigio",
-
-    "#E4BD68":"Oro",          // prima lo vedevi "Arancione"
-    "#FF9016":"Arancione",
-
-    "#EC008C":"Fucsia",
-    "#F5547C":"Rosa",
-    "#F7E6DE":"Rosa chiaro",
-
-    "#C12E1F":"Rosso",
-    "#9D432C":"Rosso mattone",
-
-    "#F4EE2A":"Giallo",
-    "#00AE42":"Verde",
-    "#0A2989":"Blu",
-    "#5E43B7":"Viola"
-  };
-
-  function normHex(hex){
-    if(!hex) return "#777777";
-    let h = (""+hex).trim();
-    if(!h.startsWith("#")) h = "#"+h;
-    if(h.length===4) h = "#"+h[1]+h[1]+h[2]+h[2]+h[3]+h[3];
-    return h.toUpperCase();
-  }
-
-  function classifyHSVName(hex){ // fallback robusto
-    const H = normHex(hex).slice(1);
-    if(H.length!==6) return "Colore";
-    const r = parseInt(H.slice(0,2),16)/255,
-          g = parseInt(H.slice(2,4),16)/255,
-          b = parseInt(H.slice(4,6),16)/255;
-    const max=Math.max(r,g,b), min=Math.min(r,g,b);
-    const v=max, d=max-min, s=max===0?0:d/max;
-    let h=0;
-    if(d!==0){
-      switch(max){
-        case r: h=((g-b)/d + (g<b?6:0)); break;
-        case g: h=((b-r)/d + 2); break;
-        case b: h=((r-g)/d + 4); break;
-      }
-      h*=60;
-    }
-    if(s<0.08){
-      if(v<0.12) return "Nero";
-      if(v>0.88) return "Bianco";
-      return "Grigio";
-    }
-    // *** Oro PRIMA di Arancione ***
-    if(h>=40 && h<55 && s>0.40 && v>0.60) return "Oro";
-    // Rosa/Fucsia
-    if((h>=295 && h<350) || (h>=350 && s<0.20 && v>0.85)) return "Rosa";
-    if(h>=10 && h<40 && s<0.20 && v>0.85) return "Rosa";
-    if(h<10 || h>=350) return "Rosso";
-    if(h>=10 && h<40)  return "Arancione";
-    if(h>=55 && h<65)  return "Giallo";
-    if(h>=65 && h<170) return "Verde";
-    if(h>=170 && h<190) return "Ciano";
-    if(h>=190 && h<255) return "Blu";
-    if(h>=255 && h<295) return "Viola";
-    return "Colore";
-  }
-
-  function nameFor(hex, isTransparent, apiName){
-    if(isTransparent) return "Trasparente";
-    const H = normHex(hex);
-    if (COLOR_OVERRIDES[H]) return COLOR_OVERRIDES[H];
-    if(apiName && apiName.trim()) return apiName.trim();
-    return classifyHSVName(H);
-  }
-
-  // --- Wrapper di fetch: corregge /api/spools al volo ---
-  const _origFetch = window.fetch;
-  window.fetch = async function(input, init){
-    try {
-      const url = (typeof input==='string') ? input : (input && (input.url || input.href)) || "";
-      const res = await _origFetch(input, init);
-      if(!url || !/\/api\/spools/.test(url)) return res;
-
-      const clone = res.clone();
-      let data;
-      try { data = await clone.json(); } catch(e){ return res; }
-
-      if(data && Array.isArray(data.items)){
-        data.items = data.items.map(it => {
-          const hex = normHex(it.color_hex || it.hex);
-          const transparent = !!it.is_transparent;
-          const name = nameFor(hex, transparent, it.color_name || it.name);
-          return Object.assign({}, it, {
-            color_hex: hex,
-            hex: hex,
-            color_name: name,
-            name: name,
-            is_transparent: transparent
-          });
-        });
-        const payload = JSON.stringify(data);
-        return new Response(payload, {
-          status: res.status,
-          statusText: res.statusText,
-          headers: {'Content-Type':'application/json'}
-        });
-      }
-      return res;
-    } catch (err){
-      return _origFetch(input, init);
-    }
-  };
-
-  // --- CSS di sicurezza per i pallini (se usano .dot) ---
-  const style = document.createElement('style');
-  style.textContent = `
-    .dot{ background:#666; border:2px solid rgba(255,255,255,.2); box-shadow:inset 0 0 0 2px rgba(0,0,0,.2); }
-    .dot.transparent{
-      background:
-        conic-gradient(#0000 90deg,#fff 0 180deg,#0000 0) 0 0/10px 10px,
-        conic-gradient(#0000 90deg,#fff 0 180deg,#0000 0) 5px 5px/10px 10px,
-        #fff !important;
-      background-image:
-        conic-gradient(#0000 90deg,#fff 0 180deg,#0000 0) 0 0/10px 10px,
-        conic-gradient(#0000 90deg,#fff 0 180deg,#0000 0) 5px 5px/10px 10px !important;
-    }
-  `;
-  document.head && document.head.appendChild(style);
-})();
-</script>
-<!-- COLOR PATCH END -->
-
 </body>
 </html>

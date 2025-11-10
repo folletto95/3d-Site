@@ -1,10 +1,10 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, json
+import os, tempfile, subprocess
 import httpx
 
-app = FastAPI(title="slicer-api", version="0.3.0")
+app = FastAPI(title="slicer-api", version="0.4.0")
 
 # === UI statica su /ui ===
 app.mount("/ui", StaticFiles(directory="web", html=True), name="ui")
@@ -18,9 +18,8 @@ def healthz():
     return "ok"
 
 # === Spoolman bridge: /api/spools ===
-# Env:
-#   SPOOLMAN_URL   es. http://spoolman:8000  oppure http://IP:PORT
-#   SPOOLMAN_TOKEN (opzionale) Bearer token
+# Env obbligatoria: SPOOLMAN_URL (es. http://192.168.10.164:7912)
+# Env opzionale:    SPOOLMAN_TOKEN (Bearer), SPOOLMAN_SPOOLS_PATH (override endpoint)
 @app.get("/api/spools")
 async def get_spools():
     base = os.getenv("SPOOLMAN_URL", "").rstrip("/")
@@ -32,28 +31,41 @@ async def get_spools():
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    # Proviamo più endpoint noti, prendendo il 1° che risponde 200
-    candidates = [
+    # ordine di tentativi; puoi forzare con SPOOLMAN_SPOOLS_PATH
+    override_path = os.getenv("SPOOLMAN_SPOOLS_PATH")
+    candidates = [override_path] if override_path else [
         "/api/v1/spool/?page_size=1000",
         "/api/v1/spools?page_size=1000",
         "/api/spool/?page_size=1000",
+        "/api/spools?page_size=1000",
     ]
 
+    attempted = []
+    data = None
+    last_err = None
+
     async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
-        data = None
-        last_err = None
         for path in candidates:
+            if not path:
+                continue
+            url = f"{base}{path}"
+            attempted.append(url)
             try:
-                r = await client.get(f"{base}{path}")
+                r = await client.get(url)
                 if r.status_code == 200:
                     data = r.json()
                     break
+                last_err = f"HTTP {r.status_code} on {url}"
             except Exception as e:
-                last_err = str(e)
-        if data is None:
-            raise HTTPException(502, f"Impossibile leggere Spoolman ({last_err or 'no 200'})")
+                last_err = f"{type(e).__name__}: {e}"
 
-    # Normalizza: lista spools
+    if data is None:
+        raise HTTPException(
+            502,
+            f"Spoolman non raggiungibile. Tentativi: {attempted}  Errore: {last_err}"
+        )
+
+    # normalizza results -> lista
     if isinstance(data, dict):
         spools = data.get("results") or data.get("spools") or []
     elif isinstance(data, list):
@@ -61,27 +73,39 @@ async def get_spools():
     else:
         spools = []
 
+    def as_float(x):
+        try:
+            return float(x)
+        except Exception:
+            return None
+
     out = []
     for s in spools:
-        # estrazioni flessibili per adattarsi a diverse versioni API
+        # s, fil e material possono cambiare tra versioni -> prendiamo il possibile
         fil = s.get("filament", {}) if isinstance(s, dict) else {}
-        mat = (
-            (fil.get("material") or {}).get("name")
-            if isinstance(fil.get("material"), dict) else fil.get("material")
-        ) or s.get("material") or "N/D"
 
+        # materiale
+        mat = None
+        if isinstance(fil.get("material"), dict):
+            mat = fil["material"].get("name")
+        else:
+            mat = fil.get("material") or s.get("material")
+        mat = mat or "N/D"
+
+        # colore (nome + hex)
         color_name = (
             fil.get("color_name") or fil.get("colour_name")
             or (s.get("color") or {}).get("name")
-            or s.get("color_name") or s.get("name") or "—"
+            or s.get("color_name") or s.get("name")
+            or "—"
         )
-
         color_hex = (
             fil.get("color_hex") or fil.get("colour_hex")
             or (s.get("color") or {}).get("hex")
             or s.get("color_hex") or "#777777"
         )
 
+        # prezzo/kg (se presente)
         price_per_kg = (
             s.get("price_per_kg") or s.get("cost_per_kg")
             or fil.get("price_per_kg") or fil.get("cost_per_kg")
@@ -91,14 +115,13 @@ async def get_spools():
             "material": str(mat),
             "color_name": str(color_name),
             "color_hex": str(color_hex),
-            "price_per_kg": float(price_per_kg) if isinstance(price_per_kg, (int, float, str)) and str(price_per_kg).replace('.', '', 1).isdigit() else None,
+            "price_per_kg": as_float(price_per_kg),
         })
 
-    # ordina per materiale/colore
     out.sort(key=lambda x: (x["material"].lower(), x["color_name"].lower()))
     return JSONResponse(out)
 
-# === Esempio slicing (resta invariato) ===
+# === Esempio slicing ===
 @app.post("/api/slice", response_class=PlainTextResponse)
 async def slice_model(
     model: UploadFile = File(..., description="STL/3MF da slicare"),

@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os, tempfile, subprocess, re, colorsys
 import httpx
 
-app = FastAPI(title="slicer-api", version="0.7.0")
+app = FastAPI(title="slicer-api", version="0.8.0")
 
 # -------- UI --------
 app.mount("/ui", StaticFiles(directory="web", html=True), name="ui")
@@ -24,22 +24,22 @@ HOURLY_RATE = float(os.getenv("HOURLY_RATE", "1"))
 def _no_cache(payload: dict):
     return JSONResponse(content=payload, headers={"Cache-Control":"no-store, max-age=0"})
 
-# -------- Utils colore --------
+# -------- Util colore --------
 def _normalize_hex(h: str | None) -> str | None:
     if not h: return None
     s = str(h).strip()
     if not s: return None
     if not s.startswith("#"):
         s = "#" + s
-    s = s[:7]
-    # correzioni comuni tipo "#FFF" -> "#FFFFFF"
+    # "#FFF" -> "#FFFFFF"
     if len(s) == 4 and s.startswith("#"):
         r, g, b = s[1], s[2], s[3]
         s = f"#{r}{r}{g}{g}{b}{b}"
-    return s.upper()
+    return s.upper()[:7]
 
 def _hex_to_name(h: str) -> str:
-    """Nome colore in IT. Heuristica: HLS + soglie, robusta e veloce."""
+    """Heuristica in IT più tollerante: banda arancione più stretta,
+    'rosa' corretta (300–350°), bianchi/neri/grigi gestiti meglio."""
     h = _normalize_hex(h)
     if not h: return "Grigio"
     try:
@@ -49,42 +49,66 @@ def _hex_to_name(h: str) -> str:
     except Exception:
         return "Grigio"
 
-    # edge cases: bianco/nero/grigio
+    # casi netti
     if r > 0.94 and g > 0.94 and b > 0.94:
         return "Bianco"
     if r < 0.06 and g < 0.06 and b < 0.06:
         return "Nero"
 
-    # colorsys: h ∈ [0..1], l ∈ [0..1], s ∈ [0..1]
     h_, l, s = colorsys.rgb_to_hls(r, g, b)
     deg = (h_ * 360.0) % 360.0
 
+    # zone poco sature → scala di grigi
     if s < 0.10:
+        if l > 0.90: return "Bianco"
+        if l < 0.10: return "Nero"
         return "Grigio"
 
-    # “Marrone” se arancio ma scuro
-    if 15 <= deg < 45 and l < 0.50:
-        return "Marrone"
-
-    if deg < 15 or deg >= 345: return "Rosso"
-    if 15 <= deg < 45:         return "Arancione"
-    if 45 <= deg < 65:         return "Giallo"
-    if 65 <= deg < 150:        return "Verde"
-    if 150 <= deg < 190:       return "Ciano"
-    if 190 <= deg < 250:       return "Blu"
-    if 250 <= deg < 290:       return "Viola"
-    if 290 <= deg < 345:       return "Rosa"
+    # mappa “stretta” sulle tinte
+    if 350 <= deg or deg < 10:   return "Rosso"
+    if 10 <= deg < 25:           return "Rosso"    # rosso caldo, evita falsi 'arancione'
+    if 25 <= deg < 50:           return "Arancione"
+    if 50 <= deg < 90:           return "Giallo"
+    if 90 <= deg < 170:          return "Verde"
+    if 170 <= deg < 200:         return "Ciano"
+    if 200 <= deg < 260:         return "Blu"
+    if 260 <= deg < 300:         return "Viola"
+    if 300 <= deg < 350:         return "Rosa"
     return "Grigio"
 
-TRANSPARENT_PAT = re.compile(r"\b(clear|transparent|traspar|glass|smoke)\b", re.I)
+# parole che identificano chiaramente trasparenza
+TRANSPAT = re.compile(
+    r"\b(clear|transparent|traspar|translucent|translucido|semi[-\s]?traspar|glass|smoke)\b",
+    re.I
+)
 
-def _detect_transparent(spool, filament):
-    txt = " ".join([
+def _detect_transparent(spool: dict, filament: dict, color_hex: str | None) -> bool:
+    blob = " ".join([
+        str(spool.get("name","")),
+        str(spool.get("product","")),
         str(spool.get("color","")),
+        str(spool.get("color_name","")),
         str(filament.get("name","")),
         str(filament.get("material",""))
     ])
-    return bool(TRANSPARENT_PAT.search(txt))
+    if TRANSPAT.search(blob):
+        return True
+
+    # euristica: PETG + 'Translucent' spesso bianco ma in realtà chiaro/trasparente
+    mat = (filament.get("material") or spool.get("material") or "").lower()
+    if "petg" in mat and "transluc" in mat:
+        return True
+
+    # se è quasi bianco e il testo sopra suggerisce trasparenza
+    hx = _normalize_hex(color_hex)
+    if hx:
+        try:
+            r = int(hx[1:3],16); g = int(hx[3:5],16); b = int(hx[5:7],16)
+            if max(r,g,b) > 248 and TRANSPAT.search(blob):
+                return True
+        except Exception:
+            pass
+    return False
 
 def _first(d: dict, keys):
     for k in keys:
@@ -124,7 +148,7 @@ def _extract_filament_from_spool(spool):
     f = spool.get("filament")
     if isinstance(f, dict) and f:
         return f
-    # legacy flatten
+    # legacy flatten (best effort)
     legacy = {}
     for k in ("filament_name","name","product"):
         if spool.get(k): legacy["name"] = spool[k]; break
@@ -178,9 +202,11 @@ async def inventory():
         color_hex = _normalize_hex(_first(s,["color_hex"]) or f.get("color_hex")) or "#777777"
         material  = f.get("material") or s.get("material") or "N/A"
         diameter  = str(f.get("diameter") or s.get("diameter") or "")
-        is_trans  = _detect_transparent(s, f)
 
-        # name/hex compat UI vecchia
+        # trasparenza robusta (Translucent, Clear, ecc.)
+        is_trans  = _detect_transparent(s, f, color_hex)
+
+        # nome colore (se non fornito, stimato dall'HEX con nuova mappa)
         color_name = _first(s, ["color_name","colour_name"]) or f.get("color_name") or f.get("colour_name")
         if is_trans:
             color_name = "Trasparente"
@@ -190,10 +216,11 @@ async def inventory():
         price_per_kg = _price_per_kg_from_spool(s, f)
 
         items.append({
-            # compat UI:
-            "hex": color_hex,            # <--- usato per i pallini
-            "name": color_name,          # <--- label colore
-            # info extra:
+            # compat per UI:
+            "hex": color_hex,            # ← usato dai “pallini”
+            "name": color_name,          # ← etichetta colore
+
+            # info extra (manteniamo i vecchi campi)
             "color_hex": color_hex,
             "color_name": color_name,
             "material": material,

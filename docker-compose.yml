@@ -6,6 +6,7 @@ services:
     image: slicer-api:latest
     container_name: slicer-api
     environment:
+      - SPOOLMAN_URL: "http://192.168.10.164:7912"
       - TZ=${TZ}
     volumes:
       - ./storage/uploads:/in

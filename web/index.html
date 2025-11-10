@@ -221,8 +221,17 @@
     async function loadPalette(){
       const res = await fetch('/inventory?nocache='+Date.now());
       const data = await res.json();
-      inventoryItems = Array.isArray(data.items) ? data.items : [];
-      renderPalette(data.items || []);
+      const raw = Array.isArray(data.items) ? data.items : [];
+      // Normalizza i campi dal backend e assegna una chiave stabile
+      inventoryItems = raw.map((it,i)=>{
+        let hex = (it.color_hex || it.hex || '#777777');
+        hex = (typeof hex === 'string' ? hex : '#777777');
+        hex = hex.startsWith('#') ? hex.toUpperCase() : ('#'+hex).toUpperCase();
+        const key = it.key || `${(it.material||'mat')}_${hex}_${i}`;
+        const is_transparent = Boolean(it.is_transparent) || String(it.color_name||'').toLowerCase().includes('traspar');
+        return { ...it, color: hex, key, is_transparent };
+      });
+      renderPalette(inventoryItems);
     }
 
     function filterPalette(){
@@ -230,7 +239,7 @@
       if(!term){ renderPalette(inventoryItems); return; }
       const filtered = inventoryItems.filter(it => {
         const mat = (it.material || '').toLowerCase();
-        const colorName = (it.color_name || nearestBasicName(it.color || '#777777') || '').toLowerCase();
+        const colorName = (it.color_name || nearestBasicName(it.color)).toLowerCase();
         return mat.includes(term) || colorName.includes(term);
       });
       renderPalette(filtered);
@@ -262,7 +271,7 @@
       const box = document.getElementById('palette');
       box.innerHTML = '';
       items
-        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color||'').localeCompare(b.color||'' ) )
+        .sort((a,b)=> (a.material||'').localeCompare(b.material||'') || (a.color_name||'').localeCompare(b.color_name||'') )
         .forEach(it=>{
           const hex = (it.color || '#777777').toUpperCase();
           const price = (it.price_per_kg!=null) ? `${it.price_per_kg.toFixed(2)} ${it.currency}/kg` : 'n/d';

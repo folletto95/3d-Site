@@ -1,12 +1,12 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, re
+import os, tempfile, subprocess, re, colorsys
 import httpx
 
-app = FastAPI(title="slicer-api", version="0.6.0")
+app = FastAPI(title="slicer-api", version="0.7.0")
 
-# ---- UI ----
+# -------- UI --------
 app.mount("/ui", StaticFiles(directory="web", html=True), name="ui")
 
 @app.get("/", include_in_schema=False)
@@ -17,26 +17,85 @@ def root():
 def health():
     return "ok"
 
-# ---- Config “come prima” ----
+# -------- Config (come prima) --------
 CURRENCY    = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = float(os.getenv("HOURLY_RATE", "1"))
 
 def _no_cache(payload: dict):
     return JSONResponse(content=payload, headers={"Cache-Control":"no-store, max-age=0"})
 
-# ---------- Spoolman bridge (robusto) ----------
-# Env:
-#   SPOOLMAN_URL              es. http://192.168.10.164:7912  oppure https://...
-#   SPOOLMAN_TOKEN            (opz) Bearer token
-#   SPOOLMAN_SPOOLS_PATH      (opz) path preciso se custom
-#   SPOOLMAN_SKIP_TLS_VERIFY  "1/true" per saltare verifica certificato
+# -------- Utils colore --------
+def _normalize_hex(h: str | None) -> str | None:
+    if not h: return None
+    s = str(h).strip()
+    if not s: return None
+    if not s.startswith("#"):
+        s = "#" + s
+    s = s[:7]
+    # correzioni comuni tipo "#FFF" -> "#FFFFFF"
+    if len(s) == 4 and s.startswith("#"):
+        r, g, b = s[1], s[2], s[3]
+        s = f"#{r}{r}{g}{g}{b}{b}"
+    return s.upper()
+
+def _hex_to_name(h: str) -> str:
+    """Nome colore in IT. Heuristica: HLS + soglie, robusta e veloce."""
+    h = _normalize_hex(h)
+    if not h: return "Grigio"
+    try:
+        r = int(h[1:3], 16) / 255.0
+        g = int(h[3:5], 16) / 255.0
+        b = int(h[5:7], 16) / 255.0
+    except Exception:
+        return "Grigio"
+
+    # edge cases: bianco/nero/grigio
+    if r > 0.94 and g > 0.94 and b > 0.94:
+        return "Bianco"
+    if r < 0.06 and g < 0.06 and b < 0.06:
+        return "Nero"
+
+    # colorsys: h ∈ [0..1], l ∈ [0..1], s ∈ [0..1]
+    h_, l, s = colorsys.rgb_to_hls(r, g, b)
+    deg = (h_ * 360.0) % 360.0
+
+    if s < 0.10:
+        return "Grigio"
+
+    # “Marrone” se arancio ma scuro
+    if 15 <= deg < 45 and l < 0.50:
+        return "Marrone"
+
+    if deg < 15 or deg >= 345: return "Rosso"
+    if 15 <= deg < 45:         return "Arancione"
+    if 45 <= deg < 65:         return "Giallo"
+    if 65 <= deg < 150:        return "Verde"
+    if 150 <= deg < 190:       return "Ciano"
+    if 190 <= deg < 250:       return "Blu"
+    if 250 <= deg < 290:       return "Viola"
+    if 290 <= deg < 345:       return "Rosa"
+    return "Grigio"
+
+TRANSPARENT_PAT = re.compile(r"\b(clear|transparent|traspar|glass|smoke)\b", re.I)
+
+def _detect_transparent(spool, filament):
+    txt = " ".join([
+        str(spool.get("color","")),
+        str(filament.get("name","")),
+        str(filament.get("material",""))
+    ])
+    return bool(TRANSPARENT_PAT.search(txt))
+
+def _first(d: dict, keys):
+    for k in keys:
+        if isinstance(d, dict) and d.get(k) is not None:
+            return d[k]
 
 def _bases_from_env():
     base_env = (os.getenv("SPOOLMAN_URL") or "").rstrip("/")
     if not base_env:
-        # fallback identico al vecchio codice
         base_env = "http://192.168.10.164:7912"
-    if base_env.startswith("http://") or base_env.startswith("https://"):
+    if base_env.startswith(("http://", "https://")):
         proto, rest = base_env.split("://", 1)
         alt = ("https" if proto == "http" else "http") + "://" + rest
         return [base_env, alt]
@@ -51,54 +110,20 @@ def _paths_from_env():
         "/api/spools?page_size=1000",
     ]
 
-def _first(d: dict, keys):
-    for k in keys:
-        if isinstance(d, dict) and d.get(k) is not None:
-            return d[k]
-
-def _ensure_color_hex(v):
-    if not v: return None
-    s = str(v)
-    return s if s.startswith("#") else f"#{s}"
-
-TRANSPARENT_PAT = re.compile(r"\b(clear|transparent|traspar|glass|smoke)\b", re.I)
-def _detect_transparent(spool, filament):
-    txt = " ".join([
-        str(spool.get("color","")),
-        str(filament.get("name","")),
-        str(filament.get("material",""))
-    ])
-    return bool(TRANSPARENT_PAT.search(txt))
-
 def _price_per_kg_from_spool(spool, filament):
     spool_price = _first(spool, ["purchase_price","price","spool_price","cost_eur","cost"])
     weight_g    = _first(filament, ["weight","weight_g"])
     if spool_price is not None and weight_g:
         try:
             return float(spool_price) / (float(weight_g) / 1000.0)
-        except ZeroDivisionError:
+        except Exception:
             return None
-    # fallback su meta varie
     return _first(filament, ["price_per_kg","cost_per_kg"])
 
 def _extract_filament_from_spool(spool):
     f = spool.get("filament")
     if isinstance(f, dict) and f:
         return f
-    fid = _first(spool, ["filament_id","filamentId"])
-    if fid:
-        # prova a leggere il filament by id sui vari base
-        verify = not (os.getenv("SPOOLMAN_SKIP_TLS_VERIFY","").lower() in ("1","true","yes"))
-        token  = os.getenv("SPOOLMAN_TOKEN")
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
-        for b in _bases_from_env():
-            url = f"{b}/api/v1/filament/{fid}"
-            try:
-                r = httpx.get(url, timeout=8, headers=headers, verify=verify, follow_redirects=True)
-                if r.status_code == 200:
-                    return r.json()
-            except Exception:
-                pass
     # legacy flatten
     legacy = {}
     for k in ("filament_name","name","product"):
@@ -115,6 +140,7 @@ def _extract_filament_from_spool(spool):
         if spool.get(k) is not None: legacy["weight"] = spool[k]; break
     return legacy if legacy else {}
 
+# -------- INVENTORY (compat UI) --------
 @app.get("/inventory")
 async def inventory():
     verify = not (os.getenv("SPOOLMAN_SKIP_TLS_VERIFY","").lower() in ("1","true","yes"))
@@ -142,49 +168,67 @@ async def inventory():
     if data is None:
         raise HTTPException(502, f"Spoolman non raggiungibile. Tentativi: {attempted}  Errore: {last_err}")
 
-    # normalizza lista spool
     spools = data.get("results") or data.get("spools") if isinstance(data, dict) else data
     spools = spools or []
 
     items = []
     for s in spools:
         f = _extract_filament_from_spool(s)
-        color_hex = _ensure_color_hex(_first(s,["color_hex"]) or f.get("color_hex")) or "#777777"
-        material  = f.get("material") or "N/A"
-        diameter  = str(f.get("diameter") or "")
+
+        color_hex = _normalize_hex(_first(s,["color_hex"]) or f.get("color_hex")) or "#777777"
+        material  = f.get("material") or s.get("material") or "N/A"
+        diameter  = str(f.get("diameter") or s.get("diameter") or "")
         is_trans  = _detect_transparent(s, f)
+
+        # name/hex compat UI vecchia
+        color_name = _first(s, ["color_name","colour_name"]) or f.get("color_name") or f.get("colour_name")
+        if is_trans:
+            color_name = "Trasparente"
+        if not color_name:
+            color_name = _hex_to_name(color_hex)
+
         price_per_kg = _price_per_kg_from_spool(s, f)
 
         items.append({
+            # compat UI:
+            "hex": color_hex,            # <--- usato per i pallini
+            "name": color_name,          # <--- label colore
+            # info extra:
             "color_hex": color_hex,
+            "color_name": color_name,
             "material": material,
             "diameter": diameter,
             "count": 1,
             "remaining_g": float(_first(s,["remaining_weight","remaining_weight_g"]) or 0.0),
             "price_per_kg": float(price_per_kg) if price_per_kg is not None else None,
             "currency": CURRENCY,
-            "is_transparent": is_trans,
-            "color_name": "Trasparente" if is_trans else None
+            "is_transparent": bool(is_trans),
         })
 
-    # merge per (color_hex, material, diameter, is_transparent)
+    # merge per (hex, material, diameter, is_transparent)
     merged = {}
     for it in items:
-        key = (it["color_hex"], it["material"], it["diameter"], it["is_transparent"])
+        key = (it["hex"], it["material"], it["diameter"], it["is_transparent"])
         b = merged.setdefault(key, {"count":0,"remaining_g":0.0,"price_per_kg":None,
-                                    "color_hex":it["color_hex"],"material":it["material"],
-                                    "diameter":it["diameter"],"is_transparent":it["is_transparent"],
-                                    "color_name":it["color_name"],"currency":CURRENCY})
+                                    "hex":it["hex"],"name":it["name"],
+                                    "color_hex":it["color_hex"],"color_name":it["color_name"],
+                                    "material":it["material"],"diameter":it["diameter"],
+                                    "is_transparent":it["is_transparent"],"currency":CURRENCY})
         b["count"] += 1
         b["remaining_g"] += it["remaining_g"]
         if it["price_per_kg"] and not b["price_per_kg"]:
             b["price_per_kg"] = it["price_per_kg"]
 
     out = list(merged.values())
-    out.sort(key=lambda x: (x["material"].lower(), x["color_hex"]))
+    out.sort(key=lambda x: (x["material"].lower(), x["name"].lower(), x["hex"]))
     return _no_cache({"items": out, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
 
-# ---- slicing demo (lasciamo PrusaSlicer headless come avevi nel nuovo container) ----
+# Alias per chi chiama /api/spools
+@app.get("/api/spools")
+async def api_spools_alias():
+    return await inventory()
+
+# -------- Slicing demo --------
 @app.post("/api/slice", response_class=PlainTextResponse)
 async def slice_model(
     model: UploadFile = File(...),
@@ -210,17 +254,10 @@ async def slice_model(
         if preset_printer:  args += ["--load", preset_printer]
 
         try:
-            cp = subprocess.run(args, check=True, text=True, capture_output=True)
+            subprocess.run(args, check=True, text=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             tail = (e.stderr or e.stdout or "")[-4000:]
             raise HTTPException(500, f"Slicer failed:\n{tail}")
 
         with open(out_path, "r", encoding="utf-8", errors="ignore") as g:
             return g.read()
-
-# Retrocompat alias: la tua UI vecchia chiama /inventory, non /api/spools
-@app.get("/api/spools")
-async def api_spools_alias():
-    # per chi stava già puntando qua
-    res = await inventory()
-    return res

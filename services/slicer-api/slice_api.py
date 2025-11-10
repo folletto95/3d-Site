@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, re, colorsys
+import os, tempfile, subprocess, re, colorsys, json, threading
 import httpx
 
 app = FastAPI(title="slicer-api", version="0.8.1")
@@ -34,6 +34,73 @@ def _normalize_hex(h: str | None) -> str | None:
         r, g, b = s[1], s[2], s[3]
         s = f"#{r}{r}{g}{g}{b}{b}"
     return s.upper()[:7]
+
+# --- Mappa dei colori personalizzabile (colors.json) ---
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+_COLORS_JSON_PATH = os.path.join(_PROJECT_ROOT, "web", "colors.json")
+_COLORS_LOCK = threading.Lock()
+_COLORS_MAP = None  # type: ignore[assignment]
+_COLORS_DIRTY = False
+
+def _load_colors_map() -> dict:
+    """Carica colors.json come mappa HEX -> nome (chiavi normalizzate)."""
+    global _COLORS_MAP
+    if _COLORS_MAP is not None:
+        return _COLORS_MAP
+    cmap: dict[str,str] = {}
+    try:
+        with open(_COLORS_JSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            for k, v in data.items():
+                hk = _normalize_hex(k)
+                if not hk:
+                    continue
+                cmap[hk] = str(v)
+    except FileNotFoundError:
+        cmap = {}
+    except Exception:
+        cmap = {}
+    _COLORS_MAP = cmap
+    return _COLORS_MAP
+
+def _get_color_from_map(h: str) -> str | None:
+    cmap = _load_colors_map()
+    hx = _normalize_hex(h)
+    if not hx:
+        return None
+    return cmap.get(hx)
+
+def _register_color_hex(h: str, name: str | None) -> None:
+    """Se vede un HEX nuovo, lo aggiunge a colors.json (con nome iniziale opzionale).
+    Poi potrai cambiare il nome a mano nel file."""
+    global _COLORS_DIRTY
+    hx = _normalize_hex(h)
+    if not hx:
+        return
+    cmap = _load_colors_map()
+    if hx in cmap:
+        return
+    cmap[hx] = name or ""
+    _COLORS_DIRTY = True
+
+def _flush_colors_map_if_dirty() -> None:
+    """Scrive colors.json solo se sono apparsi nuovi HEX."""
+    global _COLORS_DIRTY, _COLORS_MAP
+    if not _COLORS_DIRTY or _COLORS_MAP is None:
+        return
+    with _COLORS_LOCK:
+        try:
+            tmp = _COLORS_JSON_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(_COLORS_MAP, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+            os.replace(tmp, _COLORS_JSON_PATH)
+            _COLORS_DIRTY = False
+        except Exception:
+            # se fallisce non blocca l'API: al massimo non aggiorna il file
+            pass
+
 
 def _hex_to_name(h: str) -> str:
     """Heuristica IT aggiornata: evita over-classifiche Arancione,
@@ -194,10 +261,33 @@ async def inventory():
         material  = f.get("material") or s.get("material") or "N/A"
         diameter  = str(f.get("diameter") or s.get("diameter") or "")
         is_trans  = _detect_transparent(s, f, color_hex)
-        color_name = _first(s,["color_name","colour_name"]) or f.get("color_name") or f.get("colour_name")
-        if is_trans: color_name = "Trasparente"
-        if not color_name: color_name = _hex_to_name(color_hex)
+
+        # 1) prova sempre dal file colors.json (override totale, tranne trasparenti)
+        color_name = None
+        if not is_trans:
+            color_name = _get_color_from_map(color_hex)
+
+        # 2) se non definito lì, usa il nome di Spoolman / filamento
+        if not color_name:
+            color_name = _first(s,["color_name","colour_name"]) or f.get("color_name") or f.get("colour_name")
+
+        # 3) forza "Trasparente" se rilevato come tale
+        if is_trans:
+            color_name = "Trasparente"
+
+        # 4) fallback heuristico solo se ancora vuoto
+        if not color_name:
+            color_name = _hex_to_name(color_hex)
+
+        # 5) assicura che ci sia sempre una stringa
+        if not color_name:
+            color_name = "N/D"
+
         price_per_kg = _price_per_kg_from_spool(s, f)
+
+        # 6) registra il codice HEX in colors.json se è nuovo
+        if not is_trans:
+            _register_color_hex(color_hex, color_name)
 
         items.append({
             "hex": color_hex,
@@ -228,6 +318,7 @@ async def inventory():
 
     out = list(merged.values())
     out.sort(key=lambda x: (x["material"].lower(), x["name"].lower(), x["hex"]))
+    _flush_colors_map_if_dirty()
     return _no_cache({"items": out, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
 
 @app.get("/api/spools")  # alias per la UI

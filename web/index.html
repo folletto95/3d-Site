@@ -1,211 +1,705 @@
 <!doctype html>
 <html lang="it">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Magazzino Filamenti & Stima</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧵</text></svg>">
+  <meta charset="utf-8">
+  <title>Stima stampa 3D</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e2e8f0;--ring:#334155;--accent:#38bdf8}
+    :root{--bg:#0f172a;--card:#1e293b;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--accent-soft:rgba(34,197,94,0.1);--danger:#f97373}
     *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue","Noto Sans",sans-serif}
-    .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-    @media (max-width:1000px){.grid{grid-template-columns:1fr}}
-    .card{background:var(--card);border-radius:16px;padding:18px;border:1px solid var(--ring)}
-    h1{margin:0 0 12px;font-size:28px}
-    h2{margin:0 0 12px;font-size:18px}
-    .palette{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;padding-right:6px}
-    .pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:14px;background:#0b1527;border:1px solid var(--ring);cursor:pointer;font-size:14px}
-    .pill[aria-selected="true"]{outline:2px solid var(--accent)}
-    .left{display:flex;align-items:center;gap:12px}
-    .dot{width:18px;height:18px;border-radius:50%;border:1px solid rgba(255,255,255,.25)}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background:radial-gradient(circle at top,#1e293b 0,#020617 55%,#000 100%);
+      color:var(--text);
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:flex-start;
+      padding:24px 12px 40px;
+    }
+    h1{
+      font-size:clamp(24px,4vw,32px);
+      margin:0 0 8px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    h1 span.logo{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:36px;
+      height:36px;
+      border-radius:12px;
+      background:radial-gradient(circle at 30% 20%,#22c55e,#16a34a 40%,#022c22 100%);
+      box-shadow:0 0 0 1px rgba(15,23,42,0.6),0 18px 30px rgba(15,23,42,0.8);
+    }
+    h1 span.logo svg{
+      width:24px;height:24px;
+      filter:drop-shadow(0 0 3px rgba(15,23,42,0.9));
+    }
+    h1 small{
+      display:block;
+      font-size:12px;
+      font-weight:500;
+      text-transform:uppercase;
+      letter-spacing:0.09em;
+      color:var(--muted);
+    }
+    .subtitle{
+      margin-bottom:18px;
+      font-size:13px;
+      color:var(--muted);
+      max-width:620px;
+    }
+    .subtitle strong{
+      color:#e5e7eb;
+      font-weight:600;
+    }
+    .layout{
+      width:100%;
+      max-width:1120px;
+      display:grid;
+      grid-template-columns:1.4fr 1fr;
+      gap:16px;
+      align-items:flex-start;
+    }
+    @media(max-width:960px){
+      .layout{
+        grid-template-columns:1fr;
+      }
+    }
+    .card{
+      background:radial-gradient(circle at top left,rgba(148,163,184,0.18),transparent 50%),radial-gradient(circle at bottom right,rgba(37,99,235,0.32),transparent 55%),var(--card);
+      border-radius:18px;
+      padding:16px 16px 18px;
+      position:relative;
+      box-shadow:0 18px 40px rgba(15,23,42,0.9);
+      border:1px solid rgba(148,163,184,0.25);
+      overflow:hidden;
+    }
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:-120px;
+      background:radial-gradient(circle at top,rgba(34,197,94,0.08),transparent 60%);
+      opacity:0.8;
+      pointer-events:none;
+    }
+    .card-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      margin-bottom:14px;
+      position:relative;
+      z-index:1;
+    }
+    .card-header h2{
+      margin:0;
+      font-size:18px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .card-header h2 span.icon{
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      background:radial-gradient(circle at 30% 20%,#22c55e,#16a34a 40%,#064e3b 100%);
+      box-shadow:0 0 0 1px rgba(15,23,42,0.7);
+    }
+    .card-header h2 span.icon svg{
+      width:13px;height:13px;
+    }
+    .card-header .hint{
+      font-size:11px;
+      color:var(--muted);
+    }
+    .card-body{
+      position:relative;
+      z-index:1;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    label{
+      display:block;
+      font-size:12px;
+      color:var(--muted);
+      margin-bottom:4px;
+    }
+    .field-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:flex-end;
+    }
+    .field-row > label{
+      flex:1 1 160px;
+    }
+    .field-row.actions{
+      justify-content:space-between;
+      align-items:center;
+      margin-top:2px;
+    }
+    input[type="file"],
+    select,
+    input[type="number"],
+    input[type="text"]{
+      width:100%;
+      font-size:13px;
+      padding:6px 9px;
+      border-radius:10px;
+      border:1px solid rgba(148,163,184,0.45);
+      background:rgba(15,23,42,0.88);
+      color:var(--text);
+      outline:none;
+      transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
+    }
+    input[type="file"]{
+      padding:6px;
+    }
+    input::placeholder{
+      color:rgba(148,163,184,0.7);
+    }
+    input:focus,
+    select:focus{
+      border-color:var(--accent);
+      box-shadow:0 0 0 1px rgba(34,197,94,0.3);
+      background:rgba(15,23,42,0.96);
+    }
+    select{
+      cursor:pointer;
+    }
+    .help{
+      font-size:11px;
+      color:var(--muted);
+      margin-top:4px;
+    }
+    .pill{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:7px 9px;
+      border-radius:999px;
+      background:rgba(15,23,42,0.9);
+      border:1px solid rgba(51,65,85,0.9);
+      margin-bottom:6px;
+      cursor:pointer;
+      transition:background .12s ease,border-color .12s ease,transform .08s ease;
+    }
+    .pill:hover{
+      background:rgba(15,23,42,0.98);
+      border-color:rgba(148,163,184,0.9);
+      transform:translateY(-1px);
+    }
+    .pill.selected{
+      background:linear-gradient(135deg,rgba(34,197,94,0.16),rgba(15,23,42,0.95));
+      border-color:var(--accent);
+      box-shadow:0 0 0 1px rgba(34,197,94,0.5);
+    }
+    .pill .left{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .pill .title{
+      font-size:13px;
+      font-weight:500;
+    }
+    .pill .sub{
+      font-size:11px;
+      color:var(--muted);
+    }
+    .pill .price{
+      font-size:11px;
+      color:var(--muted);
+      margin-right:6px;
+    }
+    .dot{
+      width:18px;
+      height:18px;
+      border-radius:999px;
+      border:1px solid rgba(15,23,42,0.9);
+      box-shadow:0 0 0 1px rgba(15,23,42,0.5),0 0 0 2px rgba(15,23,42,0.3),0 0 8px rgba(15,23,42,0.9);
+      background:#6b7280;
+      position:relative;
+      overflow:hidden;
+    }
     .dot.transparent{
-      background-image:
-        linear-gradient(45deg,#999 25%,transparent 25%),
-        linear-gradient(-45deg,#999 25%,transparent 25%),
-        linear-gradient(45deg,transparent 75%,#999 75%),
-        linear-gradient(-45deg,transparent 75%,#999 75%);
-      background-size:8px 8px;
-      background-position:0 0,0 4px,4px -4px,-4px 0;
-      background-color:#fff;
+      background:repeating-conic-gradient(#475569 0 25%,#1e293b 0 50%) 50%/12px 12px;
     }
-    .title{font-weight:700}
-    .sub{font-size:12px;color:var(--muted)}
-    .price{font-weight:800}
-    .row{display:flex;gap:12px;align-items:center}
-    input[type="file"],input[type="text"],select,button{border-radius:10px;border:1px solid var(--ring);background:#0b1527;color:var(--text);padding:10px 12px}
-    button{cursor:pointer}
-    .hint{color:var(--muted);font-size:13px}
-    .viewer{height:460px;border-radius:16px;border:1px dashed var(--ring);display:flex;align-items:center;justify-content:center;color:var(--muted)}
-    .viewer.drag{border-color:var(--accent); color:var(--accent)}
-    .est{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin-top:10px}
-    @media (max-width:1100px){.est{grid-template-columns:repeat(3,1fr)}}
-    .out{margin-top:20px;font-size:18px;line-height:1.5;background:#0b1527;padding:12px;border-radius:10px;color:var(--text)}
-    .out b{color:var(--accent);font-size:20px}
-    .advanced { display: none; }
+    .dot.transparent::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(135deg,rgba(15,23,42,0.8),transparent);
+    }
+    button{
+      border:none;
+      border-radius:999px;
+      padding:8px 14px;
+      font-size:13px;
+      font-weight:500;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      background:linear-gradient(135deg,#22c55e,#16a34a);
+      color:#ecfdf5;
+      box-shadow:0 14px 30px rgba(22,163,74,0.4);
+      transition:transform .08s ease,box-shadow .08s ease,filter .08s ease;
+    }
+    button:hover{
+      transform:translateY(-1px);
+      box-shadow:0 18px 40px rgba(22,163,74,0.5);
+      filter:brightness(1.04);
+    }
+    button:active{
+      transform:translateY(0);
+      box-shadow:0 8px 20px rgba(22,163,74,0.5);
+      filter:brightness(0.97);
+    }
+    button.secondary{
+      background:transparent;
+      border:1px solid rgba(148,163,184,0.6);
+      color:var(--muted);
+      box-shadow:none;
+    }
+    button.secondary:hover{
+      background:rgba(15,23,42,0.95);
+      color:#e5e7eb;
+      transform:translateY(-1px);
+    }
+    button.secondary:active{
+      transform:translateY(0);
+    }
+    button svg{
+      width:14px;
+      height:14px;
+    }
+    .out{
+      margin-top:10px;
+      font-size:13px;
+      background:rgba(15,23,42,0.9);
+      border-radius:12px;
+      border:1px solid rgba(148,163,184,0.35);
+      padding:10px 12px;
+      max-height:260px;
+      overflow:auto;
+      white-space:pre-wrap;
+      word-wrap:break-word;
+    }
+    .presets-row{
+      display:flex;
+      align-items:flex-end;
+      gap:8px;
+      margin-top:4px;
+      flex-wrap:wrap;
+    }
+    .presets-row > label{
+      flex:1 1 180px;
+      margin:0;
+    }
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 7px;
+      border-radius:999px;
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      background:rgba(148,163,184,0.2);
+      color:var(--muted);
+    }
+    .badge span.dot-small{
+      width:6px;height:6px;border-radius:999px;
+      background:radial-gradient(circle at 30% 20%,#22c55e,#16a34a);
+    }
+    .info-line{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:6px;
+      font-size:11px;
+      color:var(--muted);
+      margin-top:4px;
+    }
+    .info-line span.right{
+      color:#e5e7eb;
+      font-weight:500;
+    }
+
+    .viewer-wrapper{
+      position:relative;
+      border-radius:16px;
+      border:1px solid rgba(148,163,184,0.25);
+      overflow:hidden;
+      background:radial-gradient(circle at top,rgba(15,23,42,0.6),#020617 60%);
+      min-height:240px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .viewer-wrapper canvas{
+      width:100%!important;
+      height:260px!important;
+      display:block;
+    }
+    .viewer-overlay{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      background:radial-gradient(circle at top,rgba(15,23,42,0.2),transparent 60%);
+      mix-blend-mode:soft-light;
+    }
+    .no-viewer{
+      font-size:12px;
+      color:var(--muted);
+      text-align:center;
+      padding:16px;
+    }
+
+    .footer{
+      margin-top:10px;
+      font-size:11px;
+      color:var(--muted);
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .footer span.tag{
+      font-size:10px;
+      padding:2px 6px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,0.6);
+    }
+
+    .wizard-overlay{
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,0.86);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:1000;
+      padding:20px;
+    }
+    .wizard{
+      max-width:520px;
+      width:100%;
+      background:radial-gradient(circle at top,rgba(34,197,94,0.08),transparent 60%),#020617;
+      border-radius:18px;
+      border:1px solid rgba(148,163,184,0.4);
+      box-shadow:0 24px 80px rgba(15,23,42,0.95);
+      padding:16px 18px 14px;
+      position:relative;
+    }
+    .wizard h3{
+      margin:0 0 6px;
+      font-size:17px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .wizard h3 span.icon{
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      background:radial-gradient(circle at 30% 20%,#22c55e,#16a34a 40%,#064e3b 100%);
+      box-shadow:0 0 0 1px rgba(15,23,42,0.7);
+    }
+    .wizard h3 span.icon svg{
+      width:13px;height:13px;
+    }
+    .wizard p{
+      margin:0 0 6px;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .wizard ol{
+      margin:8px 0 0;
+      padding-left:18px;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .wizard li{
+      margin-bottom:4px;
+    }
+    .wizard-close{
+      position:absolute;
+      top:10px;
+      right:12px;
+      cursor:pointer;
+      font-size:12px;
+      color:var(--muted);
+      background:transparent;
+      border:none;
+      padding:3px 6px;
+      border-radius:999px;
+    }
+    .wizard-close:hover{
+      background:rgba(15,23,42,0.9);
+      color:#e5e7eb;
+    }
+    .wizard-footer{
+      margin-top:8px;
+      font-size:11px;
+      color:var(--muted);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+    }
+    .wizard-footer .badge{
+      background:rgba(34,197,94,0.08);
+      color:#bbf7d0;
+      border:1px solid rgba(34,197,94,0.5);
+    }
   </style>
-
-  <!-- Import map per Three r160+ (DEVE stare nel <head> prima dei moduli) -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-    }
-  }
-  </script>
-
-  <!-- Collante JSM → window.THREE -->
-  <script type="module">
-    import * as THREE_NS from 'three';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-    import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
-    window.THREE = { ...THREE_NS, OrbitControls, STLLoader, OBJLoader, ThreeMFLoader };
-  </script>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Magazzino Filamenti & Stima</h1>
-    <p class="hint">Dati e prezzi da Spoolman (€/kg). Costo macchina fisso lato server. La stima usa CuraEngine.</p>
+  <h1>
+    <span class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M5 17.5C5 17.5 7 15 7 9.5C7 7.015 8.79 5 11 5C13.21 5 15 7.015 15 9.5C15 15 17 17.5 17 17.5H5Z" stroke="#ecfdf5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9.5 11C9.5 9.619 10.395 8.5 11.5 8.5C12.605 8.5 13.5 9.619 13.5 11" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M7 17.5C7 17.5 8 19 11.5 19C15 19 16 17.5 16 17.5" stroke="#bbf7d0" stroke-width="1.3" stroke-linecap="round"/>
+      </svg>
+    </span>
+    <span>
+      Stima stampa 3D
+      <small>Calcolo costo + tempo basato su file G-code / modello</small>
+    </span>
+  </h1>
+  <div class="subtitle">
+    Carica un <strong>G-code</strong> (o inserisci i dati manualmente) e scegli il <strong>filamento</strong> dalla palette letta da Spoolman.  
+    Il viewer prova a mostrare il modello con il colore scelto, così puoi controllare a colpo d’occhio se torna tutto.
+  </div>
 
-    <div class="grid">
-      <div class="card">
-        <h2>Palette (seleziona materiale)</h2>
-        <input id="paletteFilter" type="text" placeholder="Filtra per materiale o colore" style="margin-bottom:8px; width:100%" oninput="filterPalette()" />
-        <div id="palette" class="palette" role="listbox" aria-label="Seleziona materiale e colore per la stima"></div>
-        <p class="hint">Ogni voce: <b>Materiale</b> — <span class="sub">Nome colore</span> — <b>€/kg</b>. Aggiornamento ogni 60 s.</p>
-      </div>
-
-      <div class="card">
-        <h2>Viewer 3D (STL/3MF/OBJ)</h2>
-        <div id="viewer" class="viewer" aria-live="polite">Trascina qui un file o caricalo dal pulsante sotto.</div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:18px">
-      <h2>File & Stima</h2>
-      <div class="row" style="flex-wrap:wrap">
-        <input id="file" type="file" accept=".stl,.obj,.3mf,.zip,.step,.stp" multiple />
-        <input id="url" type="text" placeholder="https://www.thingiverse.com/thing:..." style="flex:1;min-width:260px" />
-        <button id="btnFetch">Da URL</button>
-        <button id="btnDelete" style="margin-left:8px">Elimina</button>
-      </div>
-
-      <div class="est">
-        <label class="advanced">Layer
-          <select id="layer_h">
-            <option value="0.20">0.20 mm</option>
-            <option value="0.16">0.16 mm</option>
-            <option value="0.12">0.12 mm</option>
-            <option value="0.28">0.28 mm</option>
-          </select>
-        </label>
-        <label class="advanced">Infill
-          <select id="infill">
-            <option value="15">15%</option>
-            <option value="5">5%</option>
-            <option value="20">20%</option>
-            <option value="40">40%</option>
-          </select>
-        </label>
-        <label class="advanced">Nozzle
-          <select id="nozzle">
-            <option value="0.4">0.4 mm</option>
-            <option value="0.6">0.6 mm</option>
-            <option value="0.2">0.2 mm</option>
-          </select>
-        </label>
-        <label class="advanced">Print speed
-          <select id="print_speed">
-            <option value="40">40 mm/s</option>
-            <option value="60" selected>60 mm/s</option>
-            <option value="80">80 mm/s</option>
-            <option value="100">100 mm/s</option>
-            <option value="160">160 mm/s</option>
-            <option value="200">200 mm/s</option>
-            <option value="250">250 mm/s</option>
-          </select>
-        </label>
-        <label class="advanced">Travel speed
-          <select id="travel_speed">
-            <option value="100">100 mm/s</option>
-            <option value="150" selected>150 mm/s</option>
-            <option value="200">200 mm/s</option>
-            <option value="300">300 mm/s</option>
-            <option value="500">500 mm/s</option>
-          </select>
-        </label>
-        <label>Preset
-          <select id="preset">
-            <option value="x1c_standard_020" selected>Standard</option>
-            <optgroup label="Bambu X1C">
-              <option value="x1c_standard_020">0.20 Standard</option>
-              <option value="x1c_quality_016">0.16 Quality</option>
-              <option value="x1c_fine_012">0.12 Fine</option>
-              <option value="x1c_draft_028">0.28 Draft</option>
-              <option value="x1c_strength_020">0.20 Strength</option>
-              <option value="x1c_lightning_020">0.20 Lightning</option>
-              <option value="x1c_ultrafine_008">0.08 Ultra Fine</option>
-            </optgroup>
-          </select>
-        </label>
-        <div style="display:flex;align-items:end">
-          <button id="btnEstimate">Stima</button>
+  <div class="layout" aria-label="Strumenti di stima stampa e anteprima modello">
+    <div class="card" aria-labelledby="inputCardTitle">
+      <div class="card-header">
+        <div>
+          <h2 id="inputCardTitle">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 4h7l4 4v12H5z" stroke="#ecfdf5" stroke-width="1.4" stroke-linejoin="round"/>
+                <path d="M12 4v4h4" stroke="#bbf7d0" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </span>
+            Dati di input
+          </h2>
+          <div class="badge" aria-label="Sorgente dati G-code / manuale">
+            <span class="dot-small" aria-hidden="true"></span>
+            G-code • Bambu / Prusa / altri
+          </div>
+        </div>
+        <div class="hint">
+          File G-code consigliato: la stima è più precisa.<br>
+          In alternativa puoi compilare i dati a mano.
         </div>
       </div>
 
-      <div id="out" class="out"></div>
+      <div class="card-body">
+        <div class="field-row">
+          <label for="gcodeFile">
+            File G-code
+            <input type="file" id="gcodeFile" accept=".gcode,.gco,.g,.bgcode">
+            <div class="help">
+              Usa il G-code esportato dallo slicer (Bambu Studio, PrusaSlicer, Cura, ecc.).
+            </div>
+          </label>
+        </div>
+
+        <div class="field-row">
+          <label for="machineSelect">
+            Macchina / profilo di stampa
+            <select id="machineSelect">
+              <option value="generic">Generica / altro</option>
+              <optgroup label="Bambu Lab">
+                <option value="x1c">X1 Carbon</option>
+                <option value="p1p">P1P</option>
+                <option value="a1">A1 / A1 mini</option>
+              </optgroup>
+              <optgroup label="Prusa">
+                <option value="mk4">Prusa MK4</option>
+                <option value="mini">Prusa Mini</option>
+              </optgroup>
+            </select>
+            <div class="help">
+              Serve a dare una stima più coerente con la macchina reale.
+            </div>
+          </label>
+
+          <label for="hourlyRate">
+            Costo orario macchina (€ / ora)
+            <input type="number" id="hourlyRate" step="0.1" min="0" value="1">
+            <div class="help">
+              Valore base dal backend: puoi modificarlo al volo.
+            </div>
+          </label>
+        </div>
+
+        <div class="presets-row">
+          <label for="presetSelect">
+            Preset di qualità (layer / velocità)
+            <select id="presetSelect">
+              <option value="">– Seleziona preset –</option>
+              <optgroup label="Bambu X1C">
+                <option value="x1c_standard_020">0.20 Standard</option>
+                <option value="x1c_fine_016">0.16 Fine</option>
+                <option value="x1c_fine_012">0.12 Fine+</option>
+                <option value="x1c_lightning_020">0.20 Lightning</option>
+                <option value="x1c_ultrafine_008">0.08 Ultra Fine</option>
+              </optgroup>
+            </select>
+          </label>
+          <div class="info-line">
+            <span>Preset → <span id="presetInfo">nessuno selezionato</span></span>
+            <span class="right">Puoi sempre modificare i parametri manualmente.</span>
+          </div>
+        </div>
+
+        <div class="field-row actions">
+          <div>
+            <button id="btnEstimate" type="button">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 12h4l2-4 4 8 2-4h2" stroke="#ecfdf5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Stima
+            </button>
+          </div>
+          <button id="btnWizard" type="button" class="secondary">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="8" stroke="#94a3b8" stroke-width="1.4"/>
+              <path d="M12 9v6" stroke="#94a3b8" stroke-width="1.4" stroke-linecap="round"/>
+              <circle cx="12" cy="7" r="0.8" fill="#94a3b8"/>
+            </svg>
+            Guida rapida
+          </button>
+        </div>
+
+        <div id="out" class="out" aria-live="polite" aria-label="Risultato stima">
+          In attesa di dati… Carica un G-code e premi “Stima”.
+        </div>
+      </div>
+    </div>
+
+    <div class="card" aria-labelledby="paletteCardTitle">
+      <div class="card-header">
+        <div>
+          <h2 id="paletteCardTitle">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="7" stroke="#ecfdf5" stroke-width="1.4"/>
+                <circle cx="9" cy="10" r="1" fill="#bfdbfe"/>
+                <circle cx="14" cy="9" r="1" fill="#bbf7d0"/>
+                <circle cx="15" cy="13" r="1" fill="#fed7aa"/>
+                <circle cx="10" cy="14" r="1" fill="#f9a8d4"/>
+              </svg>
+            </span>
+            Palette filamenti
+          </h2>
+          <div class="badge" aria-label="Sorgente dati da Spoolman">
+            <span class="dot-small" aria-hidden="true"></span>
+            Lettura da Spoolman
+          </div>
+        </div>
+        <div class="hint">
+          Ogni voce arriva direttamente da Spoolman.<br>
+          I nomi colore possono essere sovrascritti da <code>colors.json</code>.
+        </div>
+      </div>
+
+      <div class="card-body">
+        <div id="palette" role="listbox" aria-label="Lista filamenti disponibili"></div>
+
+        <div class="viewer-wrapper" aria-label="Anteprima modello 3D">
+          <div id="viewerContainer">
+            <div class="no-viewer" id="noViewerMsg">
+              Carica un G-code o un modello supportato per vedere l’anteprima qui.<br>
+              Il colore seguirà quello del filamento selezionato.
+            </div>
+          </div>
+          <div class="viewer-overlay" aria-hidden="true"></div>
+        </div>
+
+        <div class="footer">
+          <span class="tag">BETA</span>
+          <span>Rendering 3D sperimentale · Se vedi problemi strani, il modello è probabilmente innocente.</span>
+        </div>
+      </div>
     </div>
   </div>
 
-  <button id="btnWizard" title="Apri guida" style="position:fixed;top:16px;right:16px;background:var(--card);border:1px solid var(--ring);color:var(--accent);padding:8px 12px;border-radius:12px;font-size:14px;z-index:1000;cursor:pointer">Guida</button>
-
-  <div id="wizard" class="wizard-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:999;">
-    <div class="wizard-box" style="max-width:600px;margin:10% auto;background:var(--card);color:var(--text);padding:24px;border-radius:16px;box-shadow:0 0 12px rgba(0,0,0,0.5);">
-      <h2 style="margin-top:0">Benvenuto!</h2>
-      <p>Questa guida ti accompagna ai passi per ottenere una stima:</p>
-      <ol style="line-height:1.6">
-        <li><b>Scegli un materiale</b> dalla palette.</li>
-        <li><b>Carica il modello</b> (STL/3MF/OBJ o URL).</li>
-        <li><b>Scegli il preset</b> (X1C di default).</li>
-        <li><b>Premi Stima</b> per G-code, tempi e costi.</li>
+  <div class="wizard-overlay" id="wizard" aria-modal="true" role="dialog" aria-labelledby="wizardTitle">
+    <div class="wizard">
+      <button class="wizard-close" id="wizardClose" type="button">Chiudi</button>
+      <h3 id="wizardTitle">
+        <span class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 3l2.2 4.5 5 .7-3.6 3.6.9 5-4.5-2.3-4.5 2.3.9-5L4.8 8.2l5-.7z" stroke="#ecfdf5" stroke-width="1.4" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        Guida rapida alla stima
+      </h3>
+      <p>
+        Questo tool prova ad avvicinare il costo reale della stampa usando: G-code, dati macchina, costo orario e informazioni da Spoolman.
+      </p>
+      <ol>
+        <li>Carica un <strong>file G-code</strong> generato dallo slicer.</li>
+        <li>Controlla che la <strong>macchina</strong> selezionata sia quella giusta.</li>
+        <li>Scegli un <strong>preset di qualità</strong> (o lascia “Generica” e sistemi a mano).</li>
+        <li>Seleziona dalla <strong>palette</strong> il filamento che userai davvero.</li>
+        <li>Premi <strong>“Stima”</strong>: il sistema calcola materiale, tempo e costo.</li>
       </ol>
-      <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
+      <p>
+        Se un colore non ti piace, puoi rinominarlo/modificarlo in <code>colors.json</code>: ha precedenza su ogni altra fonte.
+      </p>
+      <div class="wizard-footer">
+        <span>Qualsiasi bug grafico è colpa del gatto, non del G-code.</span>
+        <span class="badge">
+          <span class="dot-small" aria-hidden="true"></span>
+          Palette + Viewer
+        </span>
+      </div>
     </div>
   </div>
 
+  <script src="/js/libs/three.min.js"></script>
+  <script src="/js/libs/STLLoader.js"></script>
+  <script src="/js/libs/OrbitControls.js"></script>
   <script>
-    // ---------- util colore ----------
+    // ---------- util base ----------
+    function $(id){ return document.getElementById(id); }
+
+    function formatEuro(v){
+      if(isNaN(v)) return 'n/d';
+      return new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(v);
+    }
+    function formatTimeMinutes(m){
+      if(!isFinite(m) || m<=0) return 'n/d';
+      const h = Math.floor(m/60);
+      const mm = Math.round(m%60);
+      if(h<=0) return `${mm} min`;
+      if(mm===0) return `${h} h`;
+      return `${h} h ${mm} min`;
+    }
     function hexNorm(h){
       if(!h) return '#777777';
       let s=String(h).trim();
       if(!s.startsWith('#')) s='#'+s;
       return s.toUpperCase();
     }
-    // --- Mappa esplicita HEX -> nome colore (fonte: schede produttori / banche colori online)
-    // Nota: prevale su classificazione HSV.
-    const KNOWN_HEX_LABELS = {
-      '#FFFFFF':'Bianco',
-      '#000000':'Nero',
-      '#020000':'Nero',
-      '#A6A9AA':'Grigio',
-      '#E4BD68':'Oro',        // soft gold (≈41° HSV) — vedi colorhexa/spektran
-      '#FF9016':'Arancione', // vivid orange
-      '#F4EE2A':'Giallo',    // bright yellow
-      '#0A2989':'Blu',       // Bambu PLA Blue
-      '#5E43B7':'Viola',     // purple
-      '#00AE42':'Verde',
-      '#EC008C':'Rosa',      // magenta/fucsia → rosa
-      '#F5547C':'Rosa',      // hot pink
-      '#C12E1F':'Rosso',
-      '#9D432C':'Marrone',   // burnt sienna/brown
-      '#F7E6DE':'Bianco'     // quasi bianco caldo (pastello)
-    };
-
     function hexToRgb(hex){
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
       return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:119,g:119,b:119};
@@ -227,9 +721,27 @@
       const v = max;
       return {h,s,v};
     }
-    function near(a,b,eps){ return Math.abs(a-b)<=eps; }
+    // ---------- mappa colori personalizzata (colors.json) ----------
+    let COLORS_OVERRIDES = {};
 
-    // nome colore coerente con HSV + regole
+    async function loadColorsOverrides(){
+      try{
+        const res = await fetch('/colors.json?nocache='+Date.now());
+        if(!res.ok) return;
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+          COLORS_OVERRIDES = {};
+          for (const [hex, name] of Object.entries(data)) {
+            if(!hex) continue;
+            const key = hexNorm(hex);
+            COLORS_OVERRIDES[key] = String(name);
+          }
+        }
+      }catch(err){
+        console.warn('Impossibile caricare colors.json', err);
+      }
+    }
+
     function nameFromHex(hex, isTransparent){
       hex = hexNorm(hex);
       if(isTransparent) return 'Trasparente';
@@ -261,7 +773,6 @@
       return 'N/D';
     }
 
-    // coerenza: se il nome fornito è palesemente sbagliato rispetto all'hex, ricalcolo
     function coherentName(hex, given, isTransparent){
       const auto = nameFromHex(hex, isTransparent);
       if(!given) return auto;
@@ -269,7 +780,11 @@
       const a = String(auto).toLowerCase();
       // se sono equivalenti o sinonimi, tiene quello di Spoolman
       const syn = {
-        'fucsia':'fucsia','magenta':'magenta','azzurro':'blu chiaro','gold':'oro','transparent':'trasparente','translucent':'trasparente'
+        'fucsia':'fucsia','magenta':'magenta','azzurro':'blu chiaro',
+        'cyan':'ciano','ciano':'ciano','brown':'marrone','maroon':'marrone',
+        'grey':'grigio','silver':'grigio','argento':'grigio',
+        'gold':'oro','golden':'oro','dorato':'oro','giallo oro':'oro',
+        'transparent':'trasparente','translucent':'trasparente'
       };
       const g2 = syn[g] || g;
       if(g2===a) return given;
@@ -299,45 +814,19 @@
         // campi robusti dal backend
         const hex = hexNorm(it.color_hex || it.hex || '#777777');
         const is_transparent = Boolean(it.is_transparent) || /(transpar|traspar)/i.test(String(it.color_name||''));
-        const color_name = coherentName(hex, it.color_name, is_transparent);
+
+        // 1) se presente in colors.json, usa SEMPRE il nome definito lì
+        const overrideName = COLORS_OVERRIDES[hex];
+
+        // 2) altrimenti prova a conciliare nome spoolman + analisi HSV
+        const autoOrCoherent = coherentName(hex, it.color_name, is_transparent);
+
+        const color_name = overrideName || autoOrCoherent;
         const key = it.key || `${(it.material||'mat')}_${hex}_${i}`;
         return { ...it, color: hex, key, is_transparent, color_name };
       });
 
       renderPalette(inventoryItems);
-    }
-
-    function filterPalette(){
-      const term = (document.getElementById('paletteFilter').value || '').trim().toLowerCase();
-      if(!term){ renderPalette(inventoryItems); return; }
-      const filtered = inventoryItems.filter(it => {
-        const mat = (it.material || '').toLowerCase();
-        const colorName = (it.color_name || '').toLowerCase();
-        return mat.includes(term) || colorName.includes(term);
-      });
-      renderPalette(filtered);
-    }
-
-    // ---------- preset handling ----------
-    const PRESETS = {
-      "": { machine: "generic", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 60, travel_speed: 150 },
-      "x1c_standard_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
-      "x1c_quality_016":  { machine: "bambu_x1c", layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
-      "x1c_fine_012":     { machine: "bambu_x1c", layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
-      "x1c_draft_028":    { machine: "bambu_x1c", layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 },
-      "x1c_strength_020": { machine: "bambu_x1c", layer_h: 0.20, infill: 50, nozzle: 0.4, print_speed: 180, travel_speed: 500 },
-      "x1c_lightning_020":{ machine: "bambu_x1c", layer_h: 0.20, infill: 10, nozzle: 0.4, print_speed: 300, travel_speed: 500 },
-      "x1c_ultrafine_008":{ machine: "bambu_x1c", layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 }
-    };
-
-    function applyPreset(key){
-      const p = PRESETS[key] || PRESETS[""];
-      selectedMachine = p.machine || "generic";
-      if(p.layer_h!=null)      document.getElementById('layer_h').value = p.layer_h.toFixed(2);
-      if(p.infill!=null)       document.getElementById('infill').value   = String(p.infill);
-      if(p.nozzle!=null)       document.getElementById('nozzle').value   = p.nozzle.toFixed(1);
-      if(p.print_speed!=null)  document.getElementById('print_speed').value = String(p.print_speed);
-      if(p.travel_speed!=null) document.getElementById('travel_speed').value = String(p.travel_speed);
     }
 
     function renderPalette(items){
@@ -355,12 +844,6 @@
           row.setAttribute('role','option');
           row.setAttribute('aria-label', `${it.material}, ${colorName}, ${price}`);
           row.setAttribute('aria-selected', selectedKey===it.key ? 'true' : 'false');
-          row.onclick = () => {
-            selectedKey = it.key;
-            [...box.children].forEach(c => c.setAttribute('aria-selected', 'false'));
-            row.setAttribute('aria-selected', 'true');
-            if (currentViewerUrl) setTimeout(() => { showViewer(currentViewerUrl, window.__lastModelName || null); }, 0);
-          };
 
           const left = document.createElement('div'); left.className='left';
           const dot = document.createElement('span'); dot.className='dot' + (it.is_transparent ? ' transparent' : '');
@@ -375,279 +858,246 @@
           left.appendChild(dot); left.appendChild(col);
           const priceEl = document.createElement('div'); priceEl.className='price'; priceEl.textContent = price;
 
-          row.appendChild(left); row.appendChild(priceEl);
+          row.appendChild(left);
+          row.appendChild(priceEl);
+
+          row.onclick = ()=>{
+            selectedKey = it.key;
+            renderPalette(items);
+            applySelectedFilament(it);
+          };
+
+          if(selectedKey===it.key){
+            row.classList.add('selected');
+          }
+
           box.appendChild(row);
         });
     }
 
-    // ---------- upload / fetch ----------
-    async function uploadFileOrBlob(file){
-      const v = document.getElementById('viewer');
-      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello…'; }
-      const fd = new FormData(); fd.append('file', file);
-      const r = await fetch('/upload_model', {method:'POST', body: fd});
-      if(!r.ok){ alert('Upload fallito'); return; }
-      const j = await r.json();
-      showViewer(j.viewer_url, j.filename);
+    function applySelectedFilament(it){
+      // Qui puoi integrare con il viewer 3D
+      // Per ora aggiorna solo il testo nel risultato
+      const out = document.getElementById('out');
+      const colorName = it.color_name || nameFromHex(it.color, it.is_transparent);
+      const base = out.textContent || '';
+      const extra = `\nFilamento selezionato: ${it.material||'n/d'} – ${colorName} (${it.color}).`;
+      out.textContent = base.replace(/\nFilamento selezionato:.*$/,'') + extra;
+      // TODO: passare il colore al viewer 3D
+      updateViewerColor(it.color, it.is_transparent);
     }
 
-    async function fetchFromUrl(){
-      const url = document.getElementById('url').value.trim();
-      if(!url){ alert('Inserisci una URL'); return; }
-      const v = document.getElementById('viewer');
-      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello da URL...'; }
-      const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
-      const j = await r.json();
-      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
-    }
+    // ---------- viewer 3D ----------
+    let viewerScene = null;
+    let viewerRenderer = null;
+    let viewerCamera = null;
+    let viewerMesh = null;
+    let viewerColor = 0x999999;
 
-    const viewer = document.getElementById('viewer');
-    viewer.addEventListener('dragenter', e => { e.preventDefault(); viewer.classList.add('drag'); });
-    viewer.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect='copy'; viewer.classList.add('drag'); });
-    viewer.addEventListener('dragleave', e => { if(!viewer.contains(e.relatedTarget)) viewer.classList.remove('drag'); });
-    viewer.addEventListener('drop',      e => {
-      e.preventDefault(); viewer.classList.remove('drag');
-      const f = e.dataTransfer.files && e.dataTransfer.files[0];
-      if(f){ uploadFileOrBlob(f); }
-    });
+    function initViewer(){
+      const container = document.getElementById('viewerContainer');
+      if(!container) return;
+      const canvas = document.createElement('canvas');
+      container.innerHTML = '';
+      container.appendChild(canvas);
 
-    const fileInput = document.getElementById('file');
-    fileInput.addEventListener('change', () => {
-      const files = fileInput.files; if(!files || !files.length) return;
-      for(const f of files){ if(f) uploadFileOrBlob(f); }
-      fileInput.value = '';
-    });
+      viewerRenderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+      viewerRenderer.setPixelRatio(window.devicePixelRatio||1);
+      viewerRenderer.setSize(container.clientWidth,260);
 
-    const btnDelete = document.getElementById('btnDelete');
-    btnDelete.addEventListener('click', () => {
-      const v = document.getElementById('viewer');
-      v.innerHTML = 'Trascina qui un file o caricalo dal pulsante sotto.';
-      v.classList.remove('drag');
-      window.__lastModelName = null;
-      currentViewerUrl = null;
-      fileInput.value = '';
-      document.getElementById('out').innerHTML = '';
-    });
+      viewerScene = new THREE.Scene();
+      viewerScene.background = null;
 
-    /**
-     * Viewer 3D
-     */
-    function showViewer(path, name){
-      currentViewerUrl = path;
-      window.__lastModelName = name;
-      const viewer = document.getElementById('viewer');
-      viewer.innerHTML = '';
-      viewer.classList.remove('drag');
+      const aspect = container.clientWidth/260;
+      viewerCamera = new THREE.PerspectiveCamera(35,aspect,0.1,100);
+      viewerCamera.position.set(0,0,60);
 
-      const THREE = window.THREE;
-      if(!THREE || !THREE.WebGLRenderer){
-        const enc = encodeURI(path);
-        viewer.innerHTML = `<a href="${enc}" target="_blank" style="color:var(--accent)">${enc}</a>`;
-        document.getElementById('out').innerHTML = '';
-        return;
-      }
+      const light1 = new THREE.DirectionalLight(0xffffff,0.8);
+      light1.position.set(1,1,1);
+      viewerScene.add(light1);
+      const light2 = new THREE.DirectionalLight(0xffffff,0.4);
+      light2.position.set(-1,0.5,-1);
+      viewerScene.add(light2);
+      const amb = new THREE.AmbientLight(0xffffff,0.6);
+      viewerScene.add(amb);
 
-      const extMatch = path.split('.').pop().toLowerCase().split('?')[0];
-      const safePath = encodeURI(path);
-      let loader;
-      if(extMatch === 'stl' && THREE.STLLoader){
-        loader = new THREE.STLLoader();
-      } else if(extMatch === 'obj' && THREE.OBJLoader){
-        loader = new THREE.OBJLoader();
-      } else if(extMatch === '3mf' && THREE.ThreeMFLoader){
-        loader = new THREE.ThreeMFLoader();
-      } else {
-        viewer.innerHTML = `<a href="${path}" target="_blank" style="color:var(--accent)">${path}</a>`;
-        document.getElementById('out').innerHTML = '';
-        return;
-      }
-
-      const width = viewer.clientWidth;
-      const height = viewer.clientHeight;
-      const canvas = document.createElement('div');
-      canvas.style.width = '100%';
-      canvas.style.height = height + 'px';
-      viewer.appendChild(canvas);
-
-      const scene = new THREE.Scene();
-      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
-      scene.background = new THREE.Color(bg);
-      const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setPixelRatio(window.devicePixelRatio || 1);
-      renderer.setSize(width, height);
-      canvas.appendChild(renderer.domElement);
-
-      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      const controls = new THREE.OrbitControls(viewerCamera, viewerRenderer.domElement);
       controls.enableDamping = true;
-      controls.dampingFactor = 0.1;
+      controls.dampingFactor = 0.05;
+      controls.rotateSpeed = 0.6;
+      controls.zoomSpeed = 0.7;
+      controls.panSpeed = 0.4;
 
-      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-      scene.add(ambient);
-      const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-      directional.position.set(3, 10, 5);
-      scene.add(directional);
-
-      loader.load(safePath, (result) => {
-        let object;
-        const sel = inventoryItems.find(x => x.key === selectedKey) || {};
-        let hex = hexNorm(sel.color || '#AAAAAA');
-        const col = new THREE.Color(hex);
-        const isTransp = Boolean(sel.is_transparent);
-
-        if(extMatch === 'stl'){
-          const material = new THREE.MeshStandardMaterial({
-            color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
-            metalness: 0.1, roughness: 0.8
-          });
-          object = new THREE.Mesh(result, material);
-        } else {
-          object = result;
-          object.traverse((child) => {
-            if(child.isMesh){
-              let mat = child.material;
-              if(Array.isArray(mat)) mat = mat.map(m => m.clone());
-              else if(mat) mat = mat.clone();
-              if(mat){
-                const apply = (m)=>{ m.color = col.clone(); m.transparent=isTransp; m.opacity=isTransp?0.6:1.0; };
-                if(Array.isArray(mat)) mat.forEach(apply); else apply(mat);
-                child.material = mat;
-              }
-            }
-          });
-        }
-        scene.add(object);
-
-        const box = new THREE.Box3().setFromObject(object);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z) || 1;
-        const fov = camera.fov * (Math.PI / 180);
-        let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
-        camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
-        camera.near = Math.max(0.001, maxDim / 100);
-        camera.far  = Math.max(10,    maxDim * 100);
-        camera.updateProjectionMatrix();
-        controls.target.copy(center);
+      function animate(){
+        requestAnimationFrame(animate);
         controls.update();
-
-        (function animate(){
-          requestAnimationFrame(animate);
-          controls.update();
-          renderer.render(scene, camera);
-        })();
-
-      }, undefined, (error) => {
-        // Fallback STL da 3MF
-        if (extMatch === '3mf') {
-          let stlPath = path.replace(/\.3mf(\?.*)?$/i, '.stl$1');
-          const bust = (stlPath.includes('?') ? '&' : '?') + 'nocache=' + Date.now();
-          stlPath += bust;
-
-          fetch(stlPath, { method: 'GET' })
-            .then(async (r) => {
-              if (!r.ok) throw new Error('STL non trovato: ' + r.status);
-              const ct = r.headers.get('content-type') || '';
-              const buf = await r.arrayBuffer();
-              if (ct.includes('text/html') || buf.byteLength < 84) {
-                throw new Error('STL non valido o troppo corto (' + buf.byteLength + ' B)');
-              }
-              const stlLoader = new THREE.STLLoader();
-              const geom = stlLoader.parse(buf);
-
-              const sel = inventoryItems.find(x => x.key === selectedKey) || {};
-              let hex = hexNorm(sel.color || '#AAAAAA');
-              const col = new THREE.Color(hex);
-              const isTransp = Boolean(sel.is_transparent);
-              const material = new THREE.MeshStandardMaterial({
-                color: col, transparent: isTransp, opacity: isTransp ? 0.6 : 1.0,
-                metalness: 0.1, roughness: 0.8
-              });
-              const object = new THREE.Mesh(geom, material);
-              scene.add(object);
-
-              const box = new THREE.Box3().setFromObject(object);
-              const size = box.getSize(new THREE.Vector3());
-              const center = box.getCenter(new THREE.Vector3());
-              const maxDim = Math.max(size.x, size.y, size.z) || 1;
-              const fov = camera.fov * (Math.PI / 180);
-              const cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
-              camera.position.set(center.x, center.y, center.z + cameraZ * 1.5);
-              camera.near = Math.max(0.001, maxDim / 100);
-              camera.far  = Math.max(10,    maxDim * 100);
-              camera.updateProjectionMatrix();
-              controls.target.copy(center);
-              controls.update();
-            })
-            .catch(() => {
-              const link = encodeURI(path);
-              viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
-            });
-        } else {
-          const link = encodeURI(path);
-          viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
-        }
-      });
-
-      document.getElementById('out').innerHTML = '';
+        viewerRenderer.render(viewerScene, viewerCamera);
+      }
+      animate();
     }
 
-    async function estimate(){
-      if(!currentViewerUrl){ alert('Carica prima un modello'); return; }
-      if(!selectedKey){ alert('Seleziona un materiale dalla palette'); return; }
-      const estimateBtn = document.getElementById('btnEstimate');
-      if(estimateBtn){ estimateBtn.disabled = true; estimateBtn.textContent = 'Calcolo...'; }
-      const outEl = document.getElementById('out');
-      if(outEl){ outEl.innerHTML = 'Calcolo in corso...'; }
-
-      const payload = {
-        viewer_url: currentViewerUrl,
-        inventory_key: selectedKey,
-        machine: selectedMachine,
-        settings: {
-          machine: selectedMachine,
-          layer_h: parseFloat(document.getElementById('layer_h').value || '0.2'),
-          infill: parseFloat(document.getElementById('infill').value || '15'),
-          nozzle: parseFloat(document.getElementById('nozzle').value || '0.4'),
-          print_speed: parseFloat(document.getElementById('print_speed').value || '60'),
-          travel_speed: parseFloat(document.getElementById('travel_speed').value || '150')
+    function setViewerModelFromSTL(url){
+      if(!viewerScene){
+        initViewer();
+      }
+      if(!viewerScene) return;
+      const loader = new THREE.STLLoader();
+      loader.load(url, geometry=>{
+        if(viewerMesh){
+          viewerScene.remove(viewerMesh);
         }
-      };
-      const r = await fetch('/slice/estimate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-      const j = await r.json();
-      if(!r.ok){
-        alert(j.detail || 'Errore stima');
-        if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
+        geometry.computeBoundingBox();
+        const bbox = geometry.boundingBox;
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
+        const center = new THREE.Vector3();
+        bbox.getCenter(center);
+        geometry.translate(-center.x,-center.y,-center.z);
+
+        const material = new THREE.MeshStandardMaterial({
+          color: viewerColor,
+          metalness:0.1,
+          roughness:0.4
+        });
+        viewerMesh = new THREE.Mesh(geometry, material);
+        viewerScene.add(viewerMesh);
+
+        const maxDim = Math.max(size.x,size.y,size.z);
+        const dist = maxDim*1.8;
+        viewerCamera.position.set(dist,dist,dist);
+        viewerCamera.lookAt(0,0,0);
+      });
+    }
+
+    function updateViewerColor(hex, isTransparent){
+      if(!hex) return;
+      const h = hexNorm(hex).replace('#','');
+      const num = parseInt(h,16);
+      if(!isFinite(num)) return;
+      viewerColor = num;
+      if(viewerMesh && viewerMesh.material){
+        viewerMesh.material.color.setHex(num);
+        viewerMesh.material.opacity = isTransparent ? 0.6 : 1.0;
+        viewerMesh.material.transparent = isTransparent;
+        viewerMesh.material.needsUpdate = true;
+      }
+    }
+
+    // ---------- stima ----------
+    async function estimate(){
+      const fileInput = document.getElementById('gcodeFile');
+      const rateInput = document.getElementById('hourlyRate');
+      const out = document.getElementById('out');
+      const machineSel = document.getElementById('machineSelect');
+
+      const hourlyRate = parseFloat(rateInput.value||'0') || 0;
+      const machine = machineSel.value || 'generic';
+
+      if(!fileInput.files || !fileInput.files[0]){
+        out.textContent = 'Carica un file G-code per calcolare la stima.';
         return;
       }
-      const tmin = Math.round(j.time_s/60);
-      document.getElementById('out').innerHTML = `
-        Tempo: <b>${tmin} min</b> — Filamento: <b>${j.filament_g} g</b><br>
-        Costo filamento: <b>${j.cost_filament} ${j.currency}</b> — Costo macchina: <b>${j.cost_machine} ${j.currency}</b><br>
-        Totale: <b>${j.total} ${j.currency}</b> — <a href="${j.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
-      `;
-      if(estimateBtn){ estimateBtn.disabled = false; estimateBtn.textContent = 'Stima'; }
-    }
 
-    document.getElementById('btnFetch').onclick  = fetchFromUrl;
-    document.getElementById('btnEstimate').onclick  = estimate;
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('hourly_rate', String(hourlyRate||0));
+      formData.append('machine', machine);
 
-    const presetSel = document.getElementById('preset');
-    if(presetSel){
-      presetSel.onchange = () => applyPreset(presetSel.value);
-      if (!selectedMachine || selectedMachine === 'generic') {
-        presetSel.value = 'x1c_standard_020';
-        applyPreset('x1c_standard_020');
+      out.textContent = 'Analisi G-code in corso…';
+
+      try{
+        const res = await fetch('/estimate', { method:'POST', body:formData });
+        if(!res.ok){
+          const txt = await res.text();
+          out.textContent = `Errore dal server (${res.status}): ${txt}`;
+          return;
+        }
+        const data = await res.json();
+        const timeMin = Number(data.estimated_time_min||0);
+        const matG = Number(data.filament_used_g||0);
+        const costMat = Number(data.material_cost||0);
+        const costTime = Number(data.time_cost||0);
+        const total = Number(data.total_cost||0);
+
+        let txt = '';
+        txt += `File: ${file.name}\n`;
+        txt += `Tempo stimato: ${formatTimeMinutes(timeMin)}\n`;
+        txt += `Materiale: ${matG.toFixed(1)} g\n`;
+        txt += `Costo materiale: ${formatEuro(costMat)}\n`;
+        txt += `Costo macchina: ${formatEuro(costTime)}\n`;
+        txt += `------------------------------\n`;
+        txt += `Totale: ${formatEuro(total)}\n`;
+
+        if(selectedKey){
+          const it = inventoryItems.find(x=>x.key===selectedKey);
+          if(it){
+            const cn = it.color_name || nameFromHex(it.color, it.is_transparent);
+            txt += `\nFilamento selezionato: ${it.material||'n/d'} – ${cn} (${it.color}).`;
+          }
+        }
+
+        out.textContent = txt;
+      }catch(err){
+        console.error(err);
+        out.textContent = 'Errore durante la stima. Controlla che il backend sia raggiungibile.';
       }
     }
-    loadPalette();
-    setInterval(loadPalette, REFRESH_MS);
 
-    const wizardBtn = document.getElementById('btnWizard');
-    const wizardOverlay = document.getElementById('wizard');
-    const wizardClose = document.getElementById('wizardClose');
-    if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'block'; }; }
-    if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
+    // ---------- preset macchina ----------
+    const PRESETS = {
+      x1c_standard_020: { layer_height:0.2, speed_factor:1.0, note:'X1C 0.20 Standard' },
+      x1c_fine_016:     { layer_height:0.16, speed_factor:0.9, note:'X1C 0.16 Fine' },
+      x1c_fine_012:     { layer_height:0.12, speed_factor:0.8, note:'X1C 0.12 Fine+' },
+      x1c_lightning_020:{ layer_height:0.2, speed_factor:1.2, note:'X1C 0.20 Lightning' },
+      x1c_ultrafine_008:{ layer_height:0.08, speed_factor:0.7, note:'X1C 0.08 Ultra Fine' }
+    };
+
+    function applyPreset(key){
+      const info = document.getElementById('presetInfo');
+      if(!key || !PRESETS[key]){
+        info.textContent = 'nessuno selezionato';
+        return;
+      }
+      const p = PRESETS[key];
+      info.textContent = `${p.note} • Layer ~${p.layer_height} mm • Velocità x${p.speed_factor}`;
+    }
+
+    // ---------- init ----------
+    window.addEventListener('DOMContentLoaded', ()=>{
+      const btn = document.getElementById('btnEstimate');
+      if(btn){
+        btn.addEventListener('click', estimate);
+      }
+
+      const presetSel = document.getElementById('presetSelect');
+      if(presetSel){
+        presetSel.onchange = () => applyPreset(presetSel.value);
+        if (!selectedMachine || selectedMachine === 'generic') {
+          presetSel.value = 'x1c_standard_020';
+          applyPreset('x1c_standard_020');
+        }
+      }
+
+      (async () => {
+        try{
+          await loadColorsOverrides();
+        }catch(e){
+          console.warn('colors.json non caricato, continuo con auto-detect', e);
+        }
+        await loadPalette();
+        setInterval(loadPalette, REFRESH_MS);
+      })();
+
+      const wizardBtn = document.getElementById('btnWizard');
+      const wizardOverlay = document.getElementById('wizard');
+      const wizardClose = document.getElementById('wizardClose');
+      if(wizardBtn && wizardOverlay){ wizardBtn.onclick = () => { wizardOverlay.style.display = 'flex'; }; }
+      if(wizardClose){ wizardClose.onclick = () => { wizardOverlay.style.display = 'none'; }; }
+
+      // init viewer (vuoto, si popola al bisogno)
+      initViewer();
+    });
   </script>
 </body>
 </html>

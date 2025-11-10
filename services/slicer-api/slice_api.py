@@ -1,52 +1,55 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import PlainTextResponse
-import subprocess, shutil, uuid, pathlib
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+import subprocess, tempfile, os
 
-IN_DIR  = pathlib.Path("/in")
-OUT_DIR = pathlib.Path("/out")
-PROF    = pathlib.Path("/profiles")
-LOGS    = pathlib.Path("/logs")
+app = FastAPI(title="slicer-api", version="0.2.0")
 
-app = FastAPI()
+# --- UI: serve la cartella /app/web su /ui ---
+app.mount("/ui", StaticFiles(directory="web", html=True), name="ui")
 
-def run_ps(args):
-    return subprocess.run(args, capture_output=True, text=True)
+@app.get("/", include_in_schema=False)
+def root():
+    # vai diretto all'interfaccia
+    return RedirectResponse(url="/ui/")
 
-@app.post("/slice", response_class=PlainTextResponse)
-async def slice_file(
-    model: UploadFile | None = File(default=None),
-    model_path: str | None = Form(default=None),
-    out_name: str = Form(default="job.gcode"),
-    printer_cfg: str = Form(default="/profiles/printer.ini"),
-    print_cfg:   str = Form(default="/profiles/print.ini"),
-    filament_cfg:str = Form(default="/profiles/filament.ini")
+@app.get("/healthz", response_class=PlainTextResponse, include_in_schema=False)
+def healthz():
+    return "ok"
+
+# --- API di slicing di esempio ---
+@app.post("/api/slice", response_class=PlainTextResponse)
+async def slice_model(
+    model: UploadFile = File(..., description="STL/3MF da slicare"),
+    preset_print: str | None = Form(None),
+    preset_filament: str | None = Form(None),
+    preset_printer: str | None = Form(None),
 ):
-    IN_DIR.mkdir(parents=True, exist_ok=True)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as td:
+        in_path = os.path.join(td, model.filename)
+        with open(in_path, "wb") as f:
+            f.write(await model.read())
 
-    if model:
-        tmpname = f"{uuid.uuid4()}_{model.filename}"
-        dst = IN_DIR / tmpname
-        with dst.open("wb") as f:
-            shutil.copyfileobj(model.file, f)
-        model_file = str(dst)
-    elif model_path:
-        model_file = model_path
-    else:
-        return PlainTextResponse("Missing model", status_code=400)
+        out_path = os.path.join(td, "out.gcode")
 
-    out_path = OUT_DIR / out_name
-    cmd = [
-        "/usr/bin/prusa-slicer", "--no-gui",
-        "--load", printer_cfg, "--load", print_cfg, "--load", filament_cfg,
-        "-g", model_file, "-o", str(out_path)
-    ]
-    p = run_ps(cmd)
-    (LOGS / (out_name + ".stdout.log")).write_text(p.stdout)
-    (LOGS / (out_name + ".stderr.log")).write_text(p.stderr)
+        args = [
+            "PrusaSlicer",
+            "--export-gcode",
+            "--load", "/profiles/print.ini",
+            "--load", "/profiles/filament.ini",
+            "--load", "/profiles/printer.ini",
+            in_path,
+            "-o", out_path,
+        ]
+        if preset_print:    args += ["--load", preset_print]
+        if preset_filament: args += ["--load", preset_filament]
+        if preset_printer:  args += ["--load", preset_printer]
 
-    if p.returncode != 0 or not out_path.exists():
-        return PlainTextResponse("PrusaSlicer failed.\n" + p.stderr, status_code=500)
+        try:
+            res = subprocess.run(args, check=True, text=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            tail = (e.stderr or e.stdout or "")[-4000:]
+            raise HTTPException(status_code=500, detail=f"Slicer failed:\n{tail}")
 
-    return str(out_path)
+        with open(out_path, "r", encoding="utf-8", errors="ignore") as g:
+            return g.read()

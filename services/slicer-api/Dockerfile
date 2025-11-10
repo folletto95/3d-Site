@@ -10,14 +10,17 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
  && "$VIRTUAL_ENV/bin/pip" install --upgrade pip
 
 WORKDIR /app
+# API
 COPY services/slicer-api/slice_api.py /app/slice_api.py
+# Profili e UI
+COPY profiles /profiles
+COPY web /app/web
 
-# Dipendenze FastAPI
+# Dipendenze FastAPI (include multipart)
 RUN "$VIRTUAL_ENV/bin/pip" install --no-cache-dir \
     fastapi "uvicorn[standard]" python-multipart
 
 EXPOSE 8080
-
-# (Pulizia) bypassa /init di linuxserver e avvia uvicorn direttamente
+# Bypassa /init di linuxserver: niente VNC/Openbox
 ENTRYPOINT ["/opt/venv/bin/uvicorn"]
 CMD ["slice_api:app","--host","0.0.0.0","--port","8080"]

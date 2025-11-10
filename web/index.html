@@ -186,6 +186,26 @@
       if(!s.startsWith('#')) s='#'+s;
       return s.toUpperCase();
     }
+    // --- Mappa esplicita HEX -> nome colore (fonte: schede produttori / banche colori online)
+    // Nota: prevale su classificazione HSV.
+    const KNOWN_HEX_LABELS = {
+      '#FFFFFF':'Bianco',
+      '#000000':'Nero',
+      '#020000':'Nero',
+      '#A6A9AA':'Grigio',
+      '#E4BD68':'Oro',        // soft gold (≈41° HSV) — vedi colorhexa/spektran
+      '#FF9016':'Arancione', // vivid orange
+      '#F4EE2A':'Giallo',    // bright yellow
+      '#0A2989':'Blu',       // Bambu PLA Blue
+      '#5E43B7':'Viola',     // purple
+      '#00AE42':'Verde',
+      '#EC008C':'Rosa',      // magenta/fucsia → rosa
+      '#F5547C':'Rosa',      // hot pink
+      '#C12E1F':'Rosso',
+      '#9D432C':'Marrone',   // burnt sienna/brown
+      '#F7E6DE':'Bianco'     // quasi bianco caldo (pastello)
+    };
+
     function hexToRgb(hex){
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex||"");
       return m ? {r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16)} : {r:119,g:119,b:119};

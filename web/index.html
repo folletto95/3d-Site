@@ -403,10 +403,67 @@
       const url = document.getElementById('url').value.trim();
       if(!url){ alert('Inserisci una URL'); return; }
       const v = document.getElementById('viewer');
-      if(v){ v.classList.remove('drag'); v.textContent = 'Caricamento modello da URL...'; }
-      const r = await fetch('/fetch_model', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url})});
-      const j = await r.json();
-      if(j.viewer_url){ showViewer(j.viewer_url, j.filename); } else { alert('Nessun modello trovato'); }
+      const prevHtml = v ? v.innerHTML : '';
+      const prevClasses = v ? Array.from(v.classList) : [];
+      const prevAriaBusy = v ? v.getAttribute('aria-busy') : null;
+      const previousUrl = currentViewerUrl;
+      const previousName = window.__lastModelName;
+
+      const restoreViewer = () => {
+        if(!v) return;
+        if(previousUrl){
+          showViewer(previousUrl, previousName);
+          return;
+        }
+        v.innerHTML = prevHtml || 'Trascina qui un file o caricalo dal pulsante sotto.';
+        v.className = '';
+        prevClasses.forEach(cls => v.classList.add(cls));
+        if(prevAriaBusy === null){ v.removeAttribute('aria-busy'); } else { v.setAttribute('aria-busy', prevAriaBusy); }
+      };
+
+      if(v){
+        v.classList.remove('drag');
+        v.textContent = 'Caricamento modello da URL...';
+        v.setAttribute('aria-busy', 'true');
+      }
+
+      try {
+        const r = await fetch('/fetch_model', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({url})
+        });
+
+        if(!r.ok){
+          const statusMessage = `${r.status} ${r.statusText || ''}`.trim();
+          throw { type: 'http', message: `Errore nel recupero del modello: ${statusMessage}`, statusMessage };
+        }
+
+        let j;
+        try {
+          j = await r.json();
+        } catch (jsonError) {
+          throw new Error('Risposta del server non valida (JSON non valido).');
+        }
+
+        if(j && j.viewer_url){
+          if(v){ v.removeAttribute('aria-busy'); }
+          showViewer(j.viewer_url, j.filename);
+          return;
+        }
+
+        const errMsg = (j && (j.error || j.message)) || 'Nessun modello trovato';
+        throw new Error(errMsg);
+      } catch (error) {
+        console.error(error);
+        if(error && error.type === 'http' && error.statusMessage){
+          alert(`Impossibile scaricare il modello: ${error.statusMessage}`);
+        } else {
+          alert(error && error.message ? error.message : 'Errore durante il caricamento del modello.');
+        }
+        if(v){ v.removeAttribute('aria-busy'); }
+        restoreViewer();
+      }
     }
 
     const viewer = document.getElementById('viewer');

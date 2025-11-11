@@ -8,9 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Librerie Python
-RUN pip3 install --no-cache-dir fastapi uvicorn[standard] python-multipart requests
- 
 ENV VIRTUAL_ENV=/opt/venv
+RUN pip3 install --no-cache-dir fastapi uvicorn[standard] python-multipart requests
 RUN python3 -m venv "$VIRTUAL_ENV" && "$VIRTUAL_ENV/bin/pip" install --upgrade pip
 
 WORKDIR /app

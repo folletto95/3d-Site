@@ -10,7 +10,7 @@ services:
       TZ: Europe/Rome
       # Metti QUI esattamente come risponda Spoolman.
       # Se sta dietro SSL (self-signed o NPM), usa https + skip verify:
-      SPOOLMAN_URL: "https://192.168.10.164:7912"
+      SPOOLMAN_URL: "http://192.168.10.164:7912"
       SPOOLMAN_SKIP_TLS_VERIFY: "1"
       CURRENCY: "EUR"
       HOURLY_RATE: "1"

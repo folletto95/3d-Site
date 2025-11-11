@@ -1,3 +1,9 @@
+##
+## Costruire passando la root del repository come contesto:
+##   docker build -f services/slicer-api/Dockerfile .
+##
+## In caso contrario (es. `docker build services/slicer-api`) i percorsi
+## `profiles/` e `web/` non saranno inclusi nel contesto e la build fallirà.
 FROM xabix99/prusaslicer:latest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

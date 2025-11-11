@@ -237,7 +237,10 @@ async function requestLegacyEstimate(payload, selectedItem) {
     throw new Error('Materiale non valido per la stima');
   }
   const formData = new FormData();
-  formData.append('viewer_url', payload.viewer_url);
+  const legacyViewerUrl = convertLegacyViewerUrl(payload.viewer_url);
+  if (legacyViewerUrl) {
+    formData.append('viewer_url', legacyViewerUrl);
+  }
   const presetSelect = document.getElementById('preset');
   if (presetSelect && presetSelect.value) {
     formData.append('preset_print', presetSelect.value);
@@ -252,10 +255,52 @@ async function requestLegacyEstimate(payload, selectedItem) {
     formData.append('price_per_kg', String(selectedItem.price_per_kg));
   }
 
+  let appendedFile = false;
+  const modelBlob = await fetchModelForLegacy(payload.viewer_url);
+  if (modelBlob) {
+    const filename = inferFallbackFilename(payload.viewer_url, state.lastModelName);
+    formData.append('model', modelBlob, filename);
+    appendedFile = true;
+  }
+
   const response = await apiFetch('/api/estimate', {
     method: 'POST',
     body: formData,
   });
+  if (!response.ok && !appendedFile) {
+    // Alcuni ambienti legacy richiedono obbligatoriamente il file del modello;
+    // se la prima richiesta fallisce e non l'abbiamo allegato, riprova con il blob.
+    const retryForm = new FormData();
+    if (legacyViewerUrl) {
+      retryForm.append('viewer_url', legacyViewerUrl);
+    }
+    if (presetSelect && presetSelect.value) {
+      retryForm.append('preset_print', presetSelect.value);
+    }
+    if (selectedItem.material) {
+      retryForm.append('material', selectedItem.material);
+    }
+    if (selectedItem.diameter_mm != null) {
+      retryForm.append('diameter', String(selectedItem.diameter_mm));
+    }
+    if (selectedItem.price_per_kg != null) {
+      retryForm.append('price_per_kg', String(selectedItem.price_per_kg));
+    }
+    const retryBlob = await fetchModelForLegacy(payload.viewer_url);
+    if (retryBlob) {
+      const retryName = inferFallbackFilename(payload.viewer_url, state.lastModelName);
+      retryForm.append('model', retryBlob, retryName);
+      const retryResponse = await apiFetch('/api/estimate', {
+        method: 'POST',
+        body: retryForm,
+      });
+      return await handleLegacyResponse(retryResponse, selectedItem);
+    }
+  }
+  return await handleLegacyResponse(response, selectedItem);
+}
+
+async function handleLegacyResponse(response, selectedItem) {
   const data = await parseJson(response);
   if (!response.ok) {
     throw new Error(data.detail || 'Errore stima');
@@ -277,6 +322,59 @@ async function requestLegacyEstimate(payload, selectedItem) {
     currency: data.currency || selectedItem.currency || 'EUR',
     gcode_url: data.gcode_url || data.download_url || null,
   };
+}
+
+function convertLegacyViewerUrl(url) {
+  if (!url) return null;
+  if (url.startsWith('/ui/uploads/')) return url;
+  if (url.startsWith('/files/')) {
+    const name = url.split('/').pop();
+    if (name) {
+      const clean = name.split('?')[0];
+      if (clean) {
+        return `/ui/uploads/${clean}`;
+      }
+    }
+  }
+  return url;
+}
+
+async function fetchModelForLegacy(url) {
+  if (!url) return null;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return null;
+    }
+    const blob = await response.blob();
+    if (!blob) {
+      return null;
+    }
+    return blob;
+  } catch (error) {
+    console.warn('Impossibile recuperare il modello per il fallback legacy', error);
+    return null;
+  }
+}
+
+function inferFallbackFilename(url, fallback) {
+  if (fallback && typeof fallback === 'string' && fallback.trim()) {
+    return fallback.trim();
+  }
+  if (url && typeof url === 'string') {
+    try {
+      const raw = url.split('/').filter(Boolean).pop();
+      if (raw) {
+        const clean = raw.split('?')[0];
+        if (clean) {
+          return decodeURIComponent(clean);
+        }
+      }
+    } catch (error) {
+      // ignora e usa fallback generico
+    }
+  }
+  return 'model.stl';
 }
 
 function toNumber(value) {

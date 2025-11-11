@@ -24,6 +24,7 @@ let activeScene = null;
 let animationId = null;
 
 const DEFAULT_VIEWER_MESSAGE = 'Trascina qui un file o caricalo dal pulsante sotto.';
+const fileNameElement = document.getElementById('fileName');
 
 export function resetViewer() {
   cleanupViewer();
@@ -33,6 +34,7 @@ export function resetViewer() {
     container.classList.remove('drag');
   }
   resetViewerState();
+  updateFileNameDisplay(null);
 }
 
 export function rerenderCurrentModel() {
@@ -42,7 +44,9 @@ export function rerenderCurrentModel() {
 }
 
 export async function showViewer(path, name) {
-  setCurrentViewer(path, name || null);
+  const displayName = name || inferNameFromPath(path);
+  setCurrentViewer(path, displayName || null);
+  updateFileNameDisplay(displayName);
   const container = document.getElementById('viewer');
   if (!container) return;
 
@@ -97,6 +101,30 @@ export async function showViewer(path, name) {
 
   const out = document.getElementById('out');
   if (out) out.innerHTML = '';
+}
+
+function inferNameFromPath(path) {
+  if (!path) return null;
+  const segments = path.split('/').filter(Boolean);
+  if (!segments.length) return null;
+  const last = segments[segments.length - 1].split('?')[0];
+  try {
+    return decodeURIComponent(last);
+  } catch (error) {
+    return last;
+  }
+}
+
+function updateFileNameDisplay(name) {
+  if (!fileNameElement) return;
+  const trimmed = (name || '').trim();
+  if (trimmed) {
+    fileNameElement.textContent = trimmed;
+    fileNameElement.title = trimmed;
+  } else {
+    fileNameElement.textContent = 'Nessun file selezionato.';
+    fileNameElement.removeAttribute('title');
+  }
 }
 
 function getSelectedMaterial() {

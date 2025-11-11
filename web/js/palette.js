@@ -1,6 +1,7 @@
 import { state, setInventoryItems, setSelectedKey } from './state.js';
 import { hexNorm, nameFromHex } from './utils/colors.js';
 import { rerenderCurrentModel } from './viewer.js';
+import { apiFetch } from './utils/api.js';
 
 const REFRESH_MS = 60000;
 let paletteContainer = null;
@@ -53,7 +54,7 @@ function applyFilter(term) {
 async function loadPalette() {
   if (!paletteContainer) return;
   try {
-    const res = await fetch(`/inventory?nocache=${Date.now()}`);
+    const res = await apiFetch(`/inventory?nocache=${Date.now()}`);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }

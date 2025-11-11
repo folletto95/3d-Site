@@ -36,7 +36,7 @@ def _env_int(name: str, default: int) -> int:
     except Exception:
         return default
 
-SPOOLMAN_BASE = os.getenv("SPOOLMAN_BASE") or ""
+SPOOLMAN_BASE = os.getenv("SPOOLMAN_BASE") or os.getenv("SPOOLMAN_URL") or ""
 SPOOLMAN_PATHS = os.getenv("SPOOLMAN_PATHS") or "/api/v1/spool/?page_size=1000,/api/v1/spools?page_size=1000,/api/spool/?page_size=1000,/api/spools?page_size=1000"
 CURRENCY = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = _env_float("HOURLY_RATE", 1.0)

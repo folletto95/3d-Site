@@ -27,3 +27,8 @@ export function setInventoryItems(items) {
 export function setSelectedMachine(machine) {
   state.selectedMachine = machine || 'generic';
 }
+
+export function getSelectedInventoryItem() {
+  if (!state.selectedKey) return null;
+  return state.inventoryItems.find((item) => item.key === state.selectedKey) || null;
+}

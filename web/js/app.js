@@ -2,7 +2,7 @@ import { initPalette } from './palette.js';
 import { initPresets } from './presets.js';
 import { state, getSelectedInventoryItem } from './state.js';
 import { resetViewer, showViewer } from './viewer.js';
-import { apiFetch } from './utils/api.js';
+import { apiFetch, getApiBase } from './utils/api.js';
 
 const viewerElement = document.getElementById('viewer');
 const fileInput = document.getElementById('file');
@@ -203,33 +203,88 @@ async function parseJson(response) {
 }
 
 async function requestEstimate(payload, selectedItem) {
-  const response = await apiFetch('/slice/estimate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const data = await requestModernEstimate(payload);
+  if (data != null) {
+    return data;
+  }
+  return requestLegacyEstimate(payload, selectedItem);
+}
 
-  if (response.status === 404) {
-    let detail = null;
+async function requestModernEstimate(payload) {
+  const attempted = new Set();
+  const paths = buildModernEstimatePaths();
+  let last404 = null;
+
+  for (const path of paths) {
+    if (!path || attempted.has(path)) continue;
+    attempted.add(path);
     try {
-      const cloned = await response.clone().json();
-      detail = cloned && cloned.detail ? String(cloned.detail) : null;
-      if (detail && detail.toLowerCase() !== 'not found') {
-        throw new Error(detail);
+      const response = await apiFetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.status === 404) {
+        const detail = await readErrorDetail(response);
+        if (detail && detail.toLowerCase() !== 'not found') {
+          throw createHttpError(detail, response.status, path);
+        }
+        last404 = createHttpError('Not found', response.status, path, detail);
+        continue;
       }
+
+      const data = await parseJson(response);
+      if (!response.ok) {
+        throw createHttpError(data.detail || 'Errore stima', response.status, path, data.detail);
+      }
+      return data;
     } catch (error) {
-      if (detail) {
-        throw error;
+      if (error && error.status === 404) {
+        last404 = error;
+        continue;
       }
+      if (error && error.name === 'TypeError') {
+        // Network failures produce TypeError; try next path.
+        continue;
+      }
+      throw error;
     }
-    return requestLegacyEstimate(payload, selectedItem);
   }
 
-  const data = await parseJson(response);
-  if (!response.ok) {
-    throw new Error(data.detail || 'Errore stima');
+  if (last404) {
+    console.warn('Modern estimate endpoint non trovato, ricado sul fallback legacy', last404);
   }
-  return data;
+  return null;
+}
+
+function buildModernEstimatePaths() {
+  const paths = ['/slice/estimate'];
+  const base = getApiBase();
+  if (!base) {
+    paths.push('/api/slice/estimate');
+  }
+  return paths;
+}
+
+async function readErrorDetail(response) {
+  try {
+    const data = await response.clone().json();
+    if (data && data.detail) {
+      return String(data.detail);
+    }
+  } catch (error) {
+    // ignore JSON parse errors
+  }
+  return null;
+}
+
+function createHttpError(message, status, path, detail = null) {
+  const error = new Error(message);
+  error.status = status;
+  error.path = path;
+  error.detail = detail;
+  return error;
 }
 
 async function requestLegacyEstimate(payload, selectedItem) {
@@ -238,8 +293,15 @@ async function requestLegacyEstimate(payload, selectedItem) {
   }
   const formData = new FormData();
   const legacyViewerUrl = convertLegacyViewerUrl(payload.viewer_url);
+  if (legacyViewerUrl || payload.viewer_url) {
+    formData.delete('model_url');
+  }
   if (legacyViewerUrl) {
     formData.append('viewer_url', legacyViewerUrl);
+    formData.append('model_url', legacyViewerUrl);
+  }
+  if (payload.viewer_url && payload.viewer_url !== legacyViewerUrl) {
+    formData.append('model_url', payload.viewer_url);
   }
   const presetSelect = document.getElementById('preset');
   if (presetSelect && presetSelect.value) {
@@ -271,8 +333,15 @@ async function requestLegacyEstimate(payload, selectedItem) {
     // Alcuni ambienti legacy richiedono obbligatoriamente il file del modello;
     // se la prima richiesta fallisce e non l'abbiamo allegato, riprova con il blob.
     const retryForm = new FormData();
+    if (legacyViewerUrl || payload.viewer_url) {
+      retryForm.delete('model_url');
+    }
     if (legacyViewerUrl) {
       retryForm.append('viewer_url', legacyViewerUrl);
+      retryForm.append('model_url', legacyViewerUrl);
+    }
+    if (payload.viewer_url && payload.viewer_url !== legacyViewerUrl) {
+      retryForm.append('model_url', payload.viewer_url);
     }
     if (presetSelect && presetSelect.value) {
       retryForm.append('preset_print', presetSelect.value);
@@ -341,20 +410,51 @@ function convertLegacyViewerUrl(url) {
 
 async function fetchModelForLegacy(url) {
   if (!url) return null;
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      return null;
+  const candidates = buildLegacyDownloadCandidates(url);
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(candidate);
+      if (!response.ok) {
+        continue;
+      }
+      const blob = await response.blob();
+      if (blob) {
+        return blob;
+      }
+    } catch (error) {
+      console.warn('Impossibile recuperare il modello per il fallback legacy', error);
     }
-    const blob = await response.blob();
-    if (!blob) {
-      return null;
-    }
-    return blob;
-  } catch (error) {
-    console.warn('Impossibile recuperare il modello per il fallback legacy', error);
-    return null;
   }
+  return null;
+}
+
+function buildLegacyDownloadCandidates(url) {
+  const candidates = [];
+  if (!url) {
+    return candidates;
+  }
+  const unique = new Set();
+  const push = (value) => {
+    if (!value) return;
+    if (!unique.has(value)) {
+      unique.add(value);
+      candidates.push(value);
+    }
+  };
+
+  push(url);
+
+  if (typeof url === 'string' && url.startsWith('/')) {
+    const base = getApiBase();
+    if (base) {
+      const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      push(`${normalizedBase}${url}`);
+    } else if (!url.startsWith('/api/')) {
+      push(`/api${url}`);
+    }
+  }
+
+  return candidates;
 }
 
 function inferFallbackFilename(url, fallback) {

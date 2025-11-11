@@ -1,25 +1,26 @@
-##
-## Costruire passando la root del repository come contesto:
-##   docker build -f services/slicer-api/Dockerfile .
-##
-## In caso contrario (es. `docker build services/slicer-api`) i percorsi
-## `profiles/` e `web/` non saranno inclusi nel contesto e la build fallirà.
+# services/slicer-api/Dockerfile
+# Base con PrusaSlicer già incluso (no alias). Aggiungiamo Python e l'API FastAPI.
 FROM xabix99/prusaslicer:latest
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive TZ=Europe/Rome
 
-ENV VIRTUAL_ENV=/opt/venv
-RUN python3 -m venv "$VIRTUAL_ENV" && "$VIRTUAL_ENV/bin/pip" install --upgrade pip
+# Dipendenze API
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Librerie Python
+RUN pip3 install --no-cache-dir fastapi uvicorn[standard] python-multipart requests
 
 WORKDIR /app
+
+# Copiamo l'API e le cartelle necessarie
 COPY services/slicer-api/slice_api.py /app/slice_api.py
 COPY profiles /profiles
 COPY web /app/web
 
-RUN "$VIRTUAL_ENV/bin/pip" install --no-cache-dir \
-    fastapi "uvicorn[standard]" python-multipart httpx requests
+# Porta dell'API
+EXPOSE 8088
 
-ENTRYPOINT ["/opt/venv/bin/uvicorn"]
-CMD ["slice_api:app","--host","0.0.0.0","--port","8088"]
+# Avvio dell'API
+CMD ["python3","-u","/app/slice_api.py"]

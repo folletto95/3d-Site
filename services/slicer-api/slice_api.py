@@ -277,18 +277,24 @@ def _extract_filament_from_spool(spool: dict) -> dict:
     return f
 
 def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
-    v = spool.get("price_per_kg") or filament.get("price_per_kg")
-    if v is None:
-        v = spool.get("price_kg") or filament.get("price_kg")
+    # prezzo totale della bobina (vari possibili campi di Spoolman)
+    spool_price = _first(spool, ["purchase_price", "price", "spool_price", "cost_eur", "cost"])
+    # peso totale del filamento in grammi (sul filamento, non sullo spool)
+    weight_g    = _first(filament, ["weight", "weight_g"])
+    if spool_price is not None and weight_g:
+        try:
+            return float(spool_price) / (float(weight_g) / 1000.0)
+        except Exception:
+            return None
+
+    # fallback: se il filamento ha già il prezzo al kg
+    v = _first(filament, ["price_per_kg", "cost_per_kg"])
     if v is None:
         return None
     try:
-        v = float(v)
+        return float(v)
     except Exception:
         return None
-    if v <= 0:
-        return None
-    return v
 
 # ---------- Inventory ----------
 @app.get("/inventory")

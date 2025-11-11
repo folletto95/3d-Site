@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# Librerie Python
+RUN pip3 install --no-cache-dir fastapi uvicorn[standard] python-multipart requests
+ 
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv "$VIRTUAL_ENV" && "$VIRTUAL_ENV/bin/pip" install --upgrade pip
 

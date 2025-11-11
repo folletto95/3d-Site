@@ -1,26 +1,26 @@
 # services/slicer-api/Dockerfile
-# Base con PrusaSlicer già incluso (no alias). Aggiungiamo Python e l'API FastAPI.
+# Base con PrusaSlicer e Python in virtualenv (no alias, PEP 668-safe)
 FROM xabix99/prusaslicer:latest
 
 ENV DEBIAN_FRONTEND=noninteractive TZ=Europe/Rome
 
-# Dipendenze API
+# Python + venv
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip ca-certificates \
+    python3 python3-venv python3-pip ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# Librerie Python
-RUN pip3 install --no-cache-dir fastapi uvicorn[standard] python-multipart requests
+# Virtualenv per evitare PEP 668
+RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir --upgrade pip wheel && \
+    /venv/bin/pip install --no-cache-dir fastapi uvicorn python-multipart requests
 
 WORKDIR /app
 
-# Copiamo l'API e le cartelle necessarie
+# API e risorse
 COPY services/slicer-api/slice_api.py /app/slice_api.py
 COPY profiles /profiles
 COPY web /app/web
 
-# Porta dell'API
 EXPOSE 8088
 
-# Avvio dell'API
-CMD ["python3","-u","/app/slice_api.py"]
+# Avvio con l'interprete del venv
+CMD ["/venv/bin/python", "-u", "/app/slice_api.py"]

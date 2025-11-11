@@ -1,10 +1,10 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, re, colorsys, json, threading, uuid
+import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math
 import httpx
 
-app = FastAPI(title="slicer-api", version="0.8.2")
+app = FastAPI(title="slicer-api", version="0.9.0")
 
 # ---------- UI ----------
 app.mount("/ui", StaticFiles(directory="web", html=True), name="ui")
@@ -36,7 +36,7 @@ def _env_int(name: str, default: int) -> int:
     except Exception:
         return default
 
-# legge SPOOLMAN_BASE oppure SPOOLMAN_URL (come usi nel compose)
+# legge SPOOLMAN_BASE oppure SPOOLMAN_URL
 SPOOLMAN_BASE = os.getenv("SPOOLMAN_BASE") or os.getenv("SPOOLMAN_URL") or ""
 SPOOLMAN_PATHS = os.getenv("SPOOLMAN_PATHS") or "/api/v1/spool/?page_size=1000,/api/v1/spools?page_size=1000,/api/spool/?page_size=1000,/api/spools?page_size=1000"
 CURRENCY = os.getenv("CURRENCY", "EUR")
@@ -94,13 +94,11 @@ def _normalize_hex(h: str | None) -> str | None:
 
 # ---------- paths helper ----------
 def _guess_web_dir() -> str:
-    # 1) env
     env = os.getenv("WEB_DIR")
     if env:
         p = os.path.abspath(env)
         if os.path.isdir(p):
             return p
-    # 2) CWD/web
     try:
         cwd = os.getcwd()
         p = os.path.join(cwd, "web")
@@ -108,12 +106,10 @@ def _guess_web_dir() -> str:
             return os.path.abspath(p)
     except Exception:
         pass
-    # 3) relativo a questo file: ../../web
     here = os.path.dirname(__file__)
     p = os.path.abspath(os.path.join(here, "..", "..", "web"))
     if os.path.isdir(p):
         return p
-    # 4) risali qualche livello e cerca web/
     base = here
     for _ in range(4):
         base = os.path.dirname(base)
@@ -122,7 +118,6 @@ def _guess_web_dir() -> str:
         p = os.path.join(base, "web")
         if os.path.isdir(p):
             return os.path.abspath(p)
-    # fallback
     return os.path.abspath("web")
 
 WEB_DIR = _guess_web_dir()
@@ -277,17 +272,13 @@ def _extract_filament_from_spool(spool: dict) -> dict:
     return f
 
 def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
-    # prezzo totale della bobina (vari possibili campi di Spoolman)
     spool_price = _first(spool, ["purchase_price", "price", "spool_price", "cost_eur", "cost"])
-    # peso totale del filamento in grammi (sul filamento, non sullo spool)
     weight_g    = _first(filament, ["weight", "weight_g"])
     if spool_price is not None and weight_g:
         try:
             return float(spool_price) / (float(weight_g) / 1000.0)
         except Exception:
             return None
-
-    # fallback: se il filamento ha già il prezzo al kg
     v = _first(filament, ["price_per_kg", "cost_per_kg"])
     if v is None:
         return None
@@ -344,28 +335,19 @@ async def inventory():
         diameter = str(f.get("diameter") or s.get("diameter") or "")
         is_trans = _detect_transparent(s, f, color_hex)
 
-        # 1) override da colors.json (se non trasparente)
         color_name: str | None = None
         if not is_trans:
             color_name = _get_color_from_map(color_hex)
-
-        # 2) se manca, usa nome da Spoolman/filamento
         if not color_name:
             color_name = _first(s, ["color_name", "colour_name"]) or f.get("color_name") or f.get("colour_name")
-
-        # 3) trasparente vince sempre
         if is_trans:
             color_name = "Trasparente"
-
-        # 4) heuristica solo se ancora vuoto
         if not color_name:
             color_name = _hex_to_name(color_hex)
-
         if not color_name:
             color_name = "N/D"
 
         price_per_kg = _price_per_kg_from_spool(s, f)
-
         if not is_trans:
             _register_color_hex(color_hex, color_name)
 
@@ -414,11 +396,11 @@ async def inventory():
     _flush_colors_map_if_dirty()
     return _no_cache({"items": out, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
 
-@app.get("/api/spools")  # alias
+@app.get("/api/spools")
 async def inventory_legacy():
     return await inventory()
 
-# ---------- Upload modello (per viewer) ----------
+# ---------- Upload modello (viewer) ----------
 ALLOWED_EXTS = {".stl", ".obj", ".3mf"}
 
 def _safe_filename(name: str) -> str:
@@ -427,33 +409,217 @@ def _safe_filename(name: str) -> str:
         base = "model"
     return base
 
+def _guess_uploads_dir() -> str:
+    uploads = os.path.join(WEB_DIR, "uploads")
+    os.makedirs(uploads, exist_ok=True)
+    return uploads
+
 @app.post("/upload_model")
 async def upload_model(file: UploadFile = File(...)):
-    # estensione
     orig = file.filename or "model"
     ext = os.path.splitext(orig)[1].lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(400, f"Estensione non supportata: {ext} (consentiti: {', '.join(sorted(ALLOWED_EXTS))})")
 
-    # path upload
-    uploads = os.path.join(WEB_DIR, "uploads")
-    os.makedirs(uploads, exist_ok=True)
-
+    uploads = _guess_uploads_dir()
     safe = _safe_filename(os.path.splitext(orig)[0]) + "_" + uuid.uuid4().hex[:8] + ext
     out_path = os.path.join(uploads, safe)
 
     try:
         with open(out_path, "wb") as f:
-            chunk = await file.read()  # per file anche grandi
+            chunk = await file.read()
             f.write(chunk)
     except Exception as e:
         raise HTTPException(500, f"Scrittura file fallita: {type(e).__name__}: {e}")
 
-    # URL servito da /ui (StaticFiles su directory web)
     viewer_url = f"/ui/uploads/{safe}"
     return {"viewer_url": viewer_url, "filename": safe}
 
-# ---------- Slice demo (opzionale) ----------
+# ---------- Estimation ----------
+_TIME_PAT = re.compile(r"estimated printing time(?: \(.*?\))?\s*=\s*([^\n\r;]+)", re.I)
+_FIL_G_PAT = re.compile(r"filament\s+used\s*\[\s*g\s*\]\s*=\s*([\d.]+)", re.I)
+_FIL_MM_PAT = re.compile(r"filament\s+used\s*\[\s*mm\s*\]\s*=\s*([\d.]+)", re.I)
+
+def _parse_time_to_seconds(txt: str) -> int | None:
+    s = txt.strip().lower()
+    # "1h 23m 45s"
+    m = re.findall(r"(\d+)\s*h", s)
+    h = int(m[0]) if m else 0
+    m2 = re.findall(r"(\d+)\s*m", s)
+    mi = int(m2[0]) if m2 else 0
+    s2 = re.findall(r"(\d+)\s*s", s)
+    se = int(s2[0]) if s2 else 0
+    if h or mi or se:
+        return h*3600 + mi*60 + se
+    # "01:23:45" / "12:34"
+    parts = [p for p in re.split(r"[:]", s) if p.isdigit()]
+    try:
+        if len(parts) == 3:
+            return int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+        if len(parts) == 2:
+            return int(parts[0])*60 + int(parts[1])
+    except Exception:
+        pass
+    return None
+
+def _density_guess(material: str | None) -> float:
+    m = (material or "").lower()
+    if "petg" in m: return 1.27
+    if "abs" in m:  return 1.04
+    if "asa" in m:  return 1.07
+    if "pc"  in m:  return 1.20
+    if "tpu" in m:  return 1.20
+    # default PLA
+    return 1.24
+
+def _grams_from_mm(length_mm: float, diameter_mm: float, material: str | None) -> float:
+    # volume(mm^3) = area * length; area = pi*(d/2)^2; mm^3 -> cm^3: /1000
+    area = math.pi * (diameter_mm/2.0)**2  # mm^2
+    vol_cm3 = (area * length_mm) / 1000.0
+    return vol_cm3 * _density_guess(material)
+
+def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament: str | None, preset_printer: str | None) -> str:
+    with tempfile.TemporaryDirectory() as td:
+        out_path = os.path.join(td, "out.gcode")
+        args = [
+            "PrusaSlicer", "--export-gcode",
+            "--load", "/profiles/print.ini",
+            "--load", "/profiles/filament.ini",
+            "--load", "/profiles/printer.ini",
+            "--output", out_path,
+            model_path,
+        ]
+        if preset_print:    args.extend(["--preset", preset_print])
+        if preset_filament: args.extend(["--preset", preset_filament])
+        if preset_printer:  args.extend(["--preset", preset_printer])
+
+        try:
+            res = subprocess.run(args, capture_output=True, text=True, timeout=1200)
+        except FileNotFoundError:
+            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, "PrusaSlicer ha impiegato troppo tempo.")
+
+        if res.returncode != 0:
+            raise HTTPException(500, f"Errore PrusaSlicer: {res.stderr[:600]}")
+
+        if not os.path.exists(out_path):
+            raise HTTPException(500, "G-code non generato.")
+
+        with open(out_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+
+def _resolve_model_path(viewer_url: str | None) -> str | None:
+    if not viewer_url:
+        return None
+    # la UI passa /ui/uploads/<file>
+    m = re.search(r"/ui/uploads/([^/?#]+)", viewer_url)
+    if not m:
+        return None
+    file_name = m.group(1)
+    path = os.path.join(WEB_DIR, "uploads", file_name)
+    return path if os.path.isfile(path) else None
+
+@app.post("/api/estimate")
+async def api_estimate(
+    model: UploadFile | None = File(default=None),
+    viewer_url: str | None = Form(default=None),
+    model_url: str | None = Form(default=None),  # alias
+    material: str | None = Form(default=None),
+    diameter: str | None = Form(default=None),
+    price_per_kg: float | None = Form(default=None),
+    hourly_rate: float | None = Form(default=None),
+    preset_print: str | None = Form(default=None),
+    preset_filament: str | None = Form(default=None),
+    preset_printer: str | None = Form(default=None),
+):
+    # risolvi modello: upload oppure modello già caricato nel viewer
+    tmp_path = None
+    model_path = None
+
+    if model is not None:
+        ext = os.path.splitext(model.filename or "model")[1].lower()
+        if ext not in ALLOWED_EXTS:
+            raise HTTPException(400, f"Estensione non supportata: {ext}")
+        td = tempfile.mkdtemp(prefix="model-")
+        tmp_path = os.path.join(td, os.path.basename(model.filename or "model") or "model")  # nosec
+        with open(tmp_path, "wb") as f:
+            f.write(await model.read())
+        model_path = tmp_path
+    else:
+        model_path = _resolve_model_path(viewer_url) or _resolve_model_path(model_url)
+        if not model_path:
+            raise HTTPException(400, "Nessun modello fornito. Passa file oppure viewer_url=/ui/uploads/<file>.")
+
+    # esegui slicing per ottenere stima
+    gcode = _run_prusaslicer(model_path, preset_print, preset_filament, preset_printer)
+
+    # parse G-code
+    filament_g = None
+    filament_mm = None
+    time_s = None
+
+    mg = _FIL_G_PAT.search(gcode)
+    if mg:
+        try:
+            filament_g = float(mg.group(1))
+        except Exception:
+            filament_g = None
+
+    mm = _FIL_MM_PAT.search(gcode)
+    if mm:
+        try:
+            filament_mm = float(mm.group(1))
+        except Exception:
+            filament_mm = None
+
+    mt = _TIME_PAT.search(gcode)
+    if mt:
+        time_s = _parse_time_to_seconds(mt.group(1))
+
+    # se mancano i grammi ma abbiamo la lunghezza -> converto io
+    if filament_g is None and filament_mm is not None:
+        try:
+            diam = float(str(diameter or "1.75").replace(",", "."))
+        except Exception:
+            diam = 1.75
+        filament_g = _grams_from_mm(filament_mm, diam, material)
+
+    # costi
+    rate = hourly_rate if hourly_rate is not None else HOURLY_RATE
+    mat_cost = None
+    if price_per_kg is not None and filament_g is not None:
+        mat_cost = price_per_kg * (filament_g / 1000.0)
+
+    mach_cost = None
+    if rate is not None and time_s is not None:
+        mach_cost = rate * (time_s / 3600.0)
+
+    total_cost = None
+    if mat_cost is not None and mach_cost is not None:
+        total_cost = mat_cost + mach_cost
+
+    # cleanup tmp
+    if tmp_path:
+        try:
+            os.remove(tmp_path)
+            os.rmdir(os.path.dirname(tmp_path))
+        except Exception:
+            pass
+
+    return _no_cache({
+        "filament_g": filament_g,
+        "filament_mm": filament_mm,
+        "time_s": time_s,
+        "price_per_kg": price_per_kg,
+        "hourly_rate": rate,
+        "cost_material": mat_cost,
+        "cost_machine": mach_cost,
+        "cost_total": total_cost,
+        "currency": CURRENCY,
+    })
+
+# ---------- Slice (esporta gcode) ----------
 @app.post("/api/slice", response_class=PlainTextResponse)
 async def slice_model(
     model: UploadFile = File(...),
@@ -468,8 +634,7 @@ async def slice_model(
         out_path = os.path.join(td, "out.gcode")
 
         args = [
-            "PrusaSlicer",
-            "--export-gcode",
+            "PrusaSlicer", "--export-gcode",
             "--load", "/profiles/print.ini",
             "--load", "/profiles/filament.ini",
             "--load", "/profiles/printer.ini",
@@ -481,14 +646,14 @@ async def slice_model(
         if preset_printer:  args.extend(["--preset", preset_printer])
 
         try:
-            res = subprocess.run(args, capture_output=True, text=True, timeout=600)
+            res = subprocess.run(args, capture_output=True, text=True, timeout=1200)
         except FileNotFoundError:
             raise HTTPException(500, "PrusaSlicer non trovato nel container.")
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "PrusaSlicer ha impiegato troppo tempo.")
 
         if res.returncode != 0:
-            raise HTTPException(500, f"Errore PrusaSlicer: {res.stderr[:500]}")
+            raise HTTPException(500, f"Errore PrusaSlicer: {res.stderr[:600]}")
 
         if not os.path.exists(out_path):
             raise HTTPException(500, "G-code non generato.")

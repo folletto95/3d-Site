@@ -482,7 +482,7 @@ def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament:
     with tempfile.TemporaryDirectory() as td:
         out_path = os.path.join(td, "out.gcode")
         args = [
-            "PrusaSlicer", "--export-gcode",
+            "prusaslicer", "--export-gcode",
             "--load", "/profiles/print.ini",
             "--load", "/profiles/filament.ini",
             "--load", "/profiles/printer.ini",
@@ -634,7 +634,7 @@ async def slice_model(
         out_path = os.path.join(td, "out.gcode")
 
         args = [
-            "PrusaSlicer", "--export-gcode",
+            "prusaslicer", "--export-gcode",
             "--load", "/profiles/print.ini",
             "--load", "/profiles/filament.ini",
             "--load", "/profiles/printer.ini",

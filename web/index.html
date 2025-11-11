@@ -287,7 +287,97 @@
     let currentViewerUrl = null;
     let selectedMachine = "generic";
     let inventoryItems = [];
+    let activeRenderer = null;
+    let activeScene = null;
+    let activeControls = null;
+    let activeViewerWrapper = null;
+    let stopRenderLoop = null;
+    let activeFrameHandle = null;
     const REFRESH_MS = 60000; // 60 s
+
+    function disposeMaterial(mat){
+      if(!mat) return;
+      if(Array.isArray(mat)){
+        mat.forEach(disposeMaterial);
+        return;
+      }
+      const props = ['map','lightMap','aoMap','emissiveMap','bumpMap','normalMap','displacementMap','roughnessMap','metalnessMap','alphaMap','envMap'];
+      props.forEach((key)=>{
+        const value = mat[key];
+        if(value && typeof value.dispose === 'function'){
+          value.dispose();
+        }
+      });
+      if(typeof mat.dispose === 'function'){
+        mat.dispose();
+      }
+    }
+
+    function cleanupActiveViewer(container){
+      if(typeof stopRenderLoop === 'function'){
+        stopRenderLoop();
+      }
+      stopRenderLoop = null;
+
+      if(activeFrameHandle !== null){
+        cancelAnimationFrame(activeFrameHandle);
+        activeFrameHandle = null;
+      }
+
+      if(activeControls){
+        try{ activeControls.dispose(); }catch(_){}
+        activeControls = null;
+      }
+
+      if(activeScene){
+        activeScene.traverse((obj)=>{
+          if(obj.geometry && typeof obj.geometry.dispose === 'function'){
+            obj.geometry.dispose();
+          }
+          if(obj.material){
+            disposeMaterial(obj.material);
+          }
+        });
+        activeScene = null;
+      }
+
+      if(activeRenderer){
+        try{ activeRenderer.dispose(); }catch(_){}
+        if(typeof activeRenderer.forceContextLoss === 'function'){
+          try{ activeRenderer.forceContextLoss(); }catch(_){}
+        }
+        const dom = activeRenderer.domElement;
+        if(dom && dom.parentNode){ dom.parentNode.removeChild(dom); }
+        activeRenderer = null;
+      }
+
+      if(activeViewerWrapper && activeViewerWrapper.parentNode){
+        activeViewerWrapper.parentNode.removeChild(activeViewerWrapper);
+      }
+      activeViewerWrapper = null;
+
+      if(container){
+        container.classList.remove('drag');
+      }
+    }
+
+    function beginRenderLoop(renderer, scene, camera, controls){
+      let running = true;
+      function loop(){
+        if(!running) return;
+        activeFrameHandle = requestAnimationFrame(loop);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      loop();
+      stopRenderLoop = () => {
+        running = false;
+        if(activeFrameHandle !== null){
+          cancelAnimationFrame(activeFrameHandle);
+          activeFrameHandle = null;
+        }
+      };
+    }
 
     // ---------- palette ----------
     async function loadPalette(){
@@ -486,6 +576,7 @@
     const btnDelete = document.getElementById('btnDelete');
     btnDelete.addEventListener('click', () => {
       const v = document.getElementById('viewer');
+      cleanupActiveViewer(v);
       v.innerHTML = 'Trascina qui un file o caricalo dal pulsante sotto.';
       v.classList.remove('drag');
       window.__lastModelName = null;
@@ -501,6 +592,8 @@
       currentViewerUrl = path;
       window.__lastModelName = name;
       const viewer = document.getElementById('viewer');
+      if(!viewer){ return; }
+      cleanupActiveViewer(viewer);
       viewer.innerHTML = '';
       viewer.classList.remove('drag');
 
@@ -553,6 +646,13 @@
       directional.position.set(3, 10, 5);
       scene.add(directional);
 
+      activeScene = scene;
+      activeRenderer = renderer;
+      activeControls = controls;
+      activeViewerWrapper = canvas;
+
+      beginRenderLoop(renderer, scene, camera, controls);
+
       loader.load(safePath, (result) => {
         let object;
         const sel = inventoryItems.find(x => x.key === selectedKey) || {};
@@ -595,12 +695,6 @@
         camera.updateProjectionMatrix();
         controls.target.copy(center);
         controls.update();
-
-        (function animate(){
-          requestAnimationFrame(animate);
-          controls.update();
-          renderer.render(scene, camera);
-        })();
 
       }, undefined, (error) => {
         // Fallback STL da 3MF
@@ -645,10 +739,12 @@
               controls.update();
             })
             .catch(() => {
+              cleanupActiveViewer(viewer);
               const link = encodeURI(path);
               viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
             });
         } else {
+          cleanupActiveViewer(viewer);
           const link = encodeURI(path);
           viewer.innerHTML = `<a href="${link}" target="_blank" style="color:var(--accent)">${link}</a>`;
         }

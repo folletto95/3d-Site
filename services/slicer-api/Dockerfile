@@ -1,22 +1,25 @@
-# services/slicer-api/Dockerfile  (minimal patch)
+##
+## Costruire passando la root del repository come contesto:
+##   docker build -f services/slicer-api/Dockerfile .
+##
+## In caso contrario (es. `docker build services/slicer-api`) i percorsi
+## `profiles/` e `web/` non saranno inclusi nel contesto e la build fallirà.
 FROM xabix99/prusaslicer:latest
 
-ENV DEBIAN_FRONTEND=noninteractive TZ=Europe/Rome
-
-# Python + venv (PEP668-safe)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
-# API deps in venv
-RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir --upgrade pip wheel && \
-    /venv/bin/pip install --no-cache-dir fastapi uvicorn python-multipart requests
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv "$VIRTUAL_ENV" && "$VIRTUAL_ENV/bin/pip" install --upgrade pip
 
 WORKDIR /app
 COPY services/slicer-api/slice_api.py /app/slice_api.py
 COPY profiles /profiles
 COPY web /app/web
 
-EXPOSE 8088
-# Avvia sempre su 8088 (la tua UI/NGINX si aspettano questa porta)
-CMD ["/venv/bin/python","-m","uvicorn","slice_api:app","--host","0.0.0.0","--port","8088","--proxy-headers"]
+RUN "$VIRTUAL_ENV/bin/pip" install --no-cache-dir \
+    fastapi "uvicorn[standard]" python-multipart httpx requests
+
+ENTRYPOINT ["/opt/venv/bin/uvicorn"]
+CMD ["slice_api:app","--host","0.0.0.0","--port","8088"]

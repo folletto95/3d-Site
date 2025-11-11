@@ -372,7 +372,14 @@ async function requestLegacyEstimate(payload, selectedItem) {
 async function handleLegacyResponse(response, selectedItem) {
   const data = await parseJson(response);
   if (!response.ok) {
-    throw new Error(data.detail || 'Errore stima');
+    const detail = (data && data.detail) ? String(data.detail) : '';
+    if (detail && /prusaslicer\s+non\s+trovato/i.test(detail)) {
+      throw new Error(
+        'Il server legacy richiede PrusaSlicer ma non è installato. ' +
+        'Aggiorna o ricostruisci il container slicer con PrusaSlicer oppure abilita l\'endpoint moderno /slice/estimate.'
+      );
+    }
+    throw new Error(detail || 'Errore stima');
   }
 
   const costFilament = toNumber(data.cost_material ?? data.cost_filament);

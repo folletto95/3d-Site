@@ -1,7 +1,8 @@
 import { initPalette } from './palette.js';
 import { initPresets } from './presets.js';
-import { state } from './state.js';
+import { state, getSelectedInventoryItem } from './state.js';
 import { resetViewer, showViewer } from './viewer.js';
+import { apiFetch } from './utils/api.js';
 
 const viewerElement = document.getElementById('viewer');
 const fileInput = document.getElementById('file');
@@ -74,7 +75,7 @@ async function uploadFileOrBlob(file) {
   const formData = new FormData();
   formData.append('file', file);
   try {
-    const response = await fetch('/upload_model', { method: 'POST', body: formData });
+    const response = await apiFetch('/upload_model', { method: 'POST', body: formData });
     if (!response.ok) {
       throw new Error(`Upload fallito (${response.status})`);
     }
@@ -98,7 +99,7 @@ async function handleFetchFromUrl() {
   }
   setViewerStatus('Caricamento modello da URL...');
   try {
-    const response = await fetch('/fetch_model', {
+    const response = await apiFetch('/fetch_model', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
@@ -150,22 +151,24 @@ async function handleEstimate() {
   };
 
   try {
-    const response = await fetch('/slice/estimate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await parseJson(response);
-    if (!response.ok) {
-      throw new Error(data.detail || 'Errore stima');
-    }
-    const minutes = Math.round(data.time_s / 60);
+    const selectedItem = getSelectedInventoryItem();
+    const data = await requestEstimate(payload, selectedItem);
     if (outputElement) {
-      outputElement.innerHTML = `
-        Tempo: <b>${minutes} min</b> — Filamento: <b>${data.filament_g} g</b><br>
-        Costo filamento: <b>${data.cost_filament} ${data.currency}</b> — Costo macchina: <b>${data.cost_machine} ${data.currency}</b><br>
-        Totale: <b>${data.total} ${data.currency}</b> — <a href="${data.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>
+      const currency = data.currency || (selectedItem && selectedItem.currency) || 'EUR';
+      const minutes = formatMinutes(data.time_s);
+      const filament = formatNumber(data.filament_g, 1);
+      const costFilament = formatCurrency(data.cost_filament, currency);
+      const costMachine = formatCurrency(data.cost_machine, currency);
+      const totalCost = formatCurrency(data.total, currency);
+      let html = `
+        Tempo: <b>${minutes != null ? `${minutes} min` : 'n/d'}</b> — Filamento: <b>${filament != null ? `${filament} g` : 'n/d'}</b><br>
+        Costo filamento: <b>${costFilament}</b> — Costo macchina: <b>${costMachine}</b><br>
+        Totale: <b>${totalCost}</b>
       `;
+      if (data.gcode_url) {
+        html += ` — <a href="${data.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>`;
+      }
+      outputElement.innerHTML = html;
     }
   } catch (error) {
     alert(error.message || 'Errore stima');
@@ -197,6 +200,114 @@ async function parseJson(response) {
   } catch (error) {
     throw new Error('Risposta non valida dal server');
   }
+}
+
+async function requestEstimate(payload, selectedItem) {
+  const response = await apiFetch('/slice/estimate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (response.status === 404) {
+    let detail = null;
+    try {
+      const cloned = await response.clone().json();
+      detail = cloned && cloned.detail ? String(cloned.detail) : null;
+      if (detail && detail.toLowerCase() !== 'not found') {
+        throw new Error(detail);
+      }
+    } catch (error) {
+      if (detail) {
+        throw error;
+      }
+    }
+    return requestLegacyEstimate(payload, selectedItem);
+  }
+
+  const data = await parseJson(response);
+  if (!response.ok) {
+    throw new Error(data.detail || 'Errore stima');
+  }
+  return data;
+}
+
+async function requestLegacyEstimate(payload, selectedItem) {
+  if (!selectedItem) {
+    throw new Error('Materiale non valido per la stima');
+  }
+  const formData = new FormData();
+  formData.append('viewer_url', payload.viewer_url);
+  const presetSelect = document.getElementById('preset');
+  if (presetSelect && presetSelect.value) {
+    formData.append('preset_print', presetSelect.value);
+  }
+  if (selectedItem.material) {
+    formData.append('material', selectedItem.material);
+  }
+  if (selectedItem.diameter_mm != null) {
+    formData.append('diameter', String(selectedItem.diameter_mm));
+  }
+  if (selectedItem.price_per_kg != null) {
+    formData.append('price_per_kg', String(selectedItem.price_per_kg));
+  }
+
+  const response = await apiFetch('/api/estimate', {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await parseJson(response);
+  if (!response.ok) {
+    throw new Error(data.detail || 'Errore stima');
+  }
+
+  const costFilament = toNumber(data.cost_material ?? data.cost_filament);
+  const costMachine = toNumber(data.cost_machine);
+  let total = toNumber(data.cost_total ?? data.total);
+  if (total == null && costFilament != null && costMachine != null) {
+    total = costFilament + costMachine;
+  }
+
+  return {
+    time_s: toNumber(data.time_s),
+    filament_g: toNumber(data.filament_g),
+    cost_filament: costFilament,
+    cost_machine: costMachine,
+    total,
+    currency: data.currency || selectedItem.currency || 'EUR',
+    gcode_url: data.gcode_url || data.download_url || null,
+  };
+}
+
+function toNumber(value) {
+  if (value == null) return null;
+  const num = Number(value);
+  if (Number.isNaN(num) || !Number.isFinite(num)) {
+    return null;
+  }
+  return num;
+}
+
+function formatNumber(value, digits) {
+  const num = toNumber(value);
+  if (num == null) return null;
+  if (typeof digits === 'number') {
+    return num.toFixed(digits);
+  }
+  return String(num);
+}
+
+function formatCurrency(value, currency) {
+  const num = formatNumber(value, 2);
+  if (num == null) return 'n/d';
+  const curr = currency || '';
+  return curr ? `${num} ${curr}` : num;
+}
+
+function formatMinutes(seconds) {
+  const num = toNumber(seconds);
+  if (num == null) return null;
+  return Math.round(num / 60);
 }
 
 function setupWizard() {

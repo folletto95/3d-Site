@@ -48,6 +48,41 @@ visualizza l'inventario in tempo reale e consente l'interazione con l'utente.
 
 I file caricati o scaricati saranno salvati nella directory locale `./uploads`.
 
+### Build manuale dell'immagine `slicer-api`
+Se preferisci costruire l'immagine senza Docker Compose assicurati di passare
+la **root del repository** come contesto di build, altrimenti le cartelle
+`profiles/` e `web/` non verranno copiate e la build fallirà con errori tipo
+```
+failed to calculate checksum of ref ...: "/profiles": not found
+```
+Puoi:
+
+1. Lanciare direttamente il wrapper incluso nel repository, che si occupa di
+   impostare automaticamente il contesto corretto **e verificare che il binario
+   `PrusaSlicer` sia disponibile**:
+   ```bash
+   ./scripts/build-slicer-api.sh -t slicer-api:local
+   ```
+   (il parametro `-t` è facoltativo e permette di impostare il tag desiderato).
+   Al termine della build lo script esegue automaticamente `PrusaSlicer --version`
+   all'interno dell'immagine per confermare che l'eseguibile sia presente; puoi
+   disattivare il controllo aggiungendo l'opzione `--skip-verify`.
+2. Oppure eseguire manualmente il build command assicurandoti di rimanere nella
+   root del repository:
+   ```bash
+   docker build -f services/slicer-api/Dockerfile .
+   ```
+
+Se vuoi testare manualmente la presenza di PrusaSlicer dopo la build (ad esempio
+quando non utilizzi lo script di supporto), puoi lanciare:
+```bash
+docker run --rm slicer-api:local PrusaSlicer --version
+```
+Sostituisci `slicer-api:local` con il tag assegnato all'immagine.
+
+In entrambi i casi otterrai un'immagine pronta per essere avviata con
+`docker run` oppure tramite `docker compose`.
+
 ## Configurazione
 Le variabili di ambiente principali, configurabili via `docker-compose.yml` o direttamente sulla
 macchina, sono:

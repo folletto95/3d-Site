@@ -52,11 +52,24 @@ ARG PRUSASLICER_BUILD=202404050928
 ARG PRUSASLICER_FLAVOUR=linux-x64-GTK3
 ARG PRUSASLICER_URL=https://github.com/prusa3d/PrusaSlicer/releases/download/version_${PRUSASLICER_VERSION}/PrusaSlicer-${PRUSASLICER_VERSION}%2B${PRUSASLICER_FLAVOUR}-${PRUSASLICER_BUILD}.AppImage
 
-RUN curl -fsSL "$PRUSASLICER_URL" -o /tmp/PrusaSlicer.AppImage \
-    && chmod +x /tmp/PrusaSlicer.AppImage \
-    && /tmp/PrusaSlicer.AppImage --appimage-extract \
-    && mv /tmp/squashfs-root /opt/prusaslicer \
-    && rm /tmp/PrusaSlicer.AppImage
+# Optional local cache: drop a PrusaSlicer *.AppImage into services/slicer-api/vendor
+# to reuse it instead of downloading the installer every time the image is rebuilt.
+COPY services/slicer-api/vendor/ /tmp/prusaslicer-cache/
+
+RUN set -eux; \
+    INSTALLER_PATH="$(find /tmp/prusaslicer-cache -maxdepth 1 -type f -name '*.AppImage' -print -quit || true)"; \
+    if [ -n "$INSTALLER_PATH" ]; then \
+        echo "Using cached PrusaSlicer installer: $(basename "$INSTALLER_PATH")"; \
+        cp "$INSTALLER_PATH" /tmp/PrusaSlicer.AppImage; \
+    else \
+        echo "Downloading PrusaSlicer installer from $PRUSASLICER_URL"; \
+        curl -fsSL "$PRUSASLICER_URL" -o /tmp/PrusaSlicer.AppImage; \
+    fi; \
+    chmod +x /tmp/PrusaSlicer.AppImage; \
+    /tmp/PrusaSlicer.AppImage --appimage-extract; \
+    mv /tmp/squashfs-root /opt/prusaslicer; \
+    rm /tmp/PrusaSlicer.AppImage; \
+    rm -rf /tmp/prusaslicer-cache
 
 # Provide a stable CLI wrapper
 RUN ln -s /opt/prusaslicer/AppRun /usr/local/bin/prusaslicer-appimage \

@@ -656,19 +656,6 @@ def _build_prusaslicer_args(
         "--output",
         output_path,
     ]
-
-    preset_args: list[str] = []
-    if preset_print:
-        preset_args.extend(["--print", preset_print])
-    if preset_filament:
-        preset_args.extend(["--filament", preset_filament])
-    if preset_printer:
-        preset_args.extend(["--printer", preset_printer])
-
-    if preset_args:
-        args.extend(["--datadir", "/profiles"])
-        args.extend(preset_args)
-
     args.append(input_path)
 
     return _sanitize_prusaslicer_args(args)
@@ -683,6 +670,12 @@ def _sanitize_prusaslicer_args(args: list[str]) -> list[str]:
             continue
         cleaned.append(item)
     return cleaned
+
+
+def _praslicer_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    return env
 
 
 def _invoke_prusaslicer(
@@ -711,6 +704,7 @@ def _invoke_prusaslicer(
             capture_output=True,
             text=True,
             timeout=1200,
+            env=_praslicer_env(),
         )
     except FileNotFoundError:
         raise HTTPException(500, "PrusaSlicer non trovato nel container.")

@@ -328,6 +328,7 @@ async function requestLegacyEstimate(payload, selectedItem) {
   const response = await apiFetch('/api/estimate', {
     method: 'POST',
     body: formData,
+    cache: 'no-store',
   });
   if (!response.ok && !appendedFile) {
     // Alcuni ambienti legacy richiedono obbligatoriamente il file del modello;
@@ -362,6 +363,7 @@ async function requestLegacyEstimate(payload, selectedItem) {
       const retryResponse = await apiFetch('/api/estimate', {
         method: 'POST',
         body: retryForm,
+        cache: 'no-store',
       });
       return await handleLegacyResponse(retryResponse, selectedItem);
     }

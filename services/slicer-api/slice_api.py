@@ -62,10 +62,42 @@ def _guess_profiles_dir() -> Path:
 
 
 PROFILES_DIR = _guess_profiles_dir()
-PRINT_PRESETS_DIR = PROFILES_DIR / "print"
-DEFAULT_PRINT_PROFILE = (PROFILES_DIR / "print.ini").resolve()
-DEFAULT_FILAMENT_PROFILE = (PROFILES_DIR / "filament.ini").resolve()
-DEFAULT_PRINTER_PROFILE = (PROFILES_DIR / "printer.ini").resolve()
+_BUNDLED_PROFILES_DIR = Path(__file__).resolve().parent.parent.parent / "profiles"
+
+
+def _existing_dir(*candidates: Path) -> Path:
+    for candidate in candidates:
+        try:
+            if candidate and candidate.is_dir():
+                return candidate.resolve()
+        except Exception:
+            continue
+    return candidates[-1].resolve()
+
+
+def _existing_profile(*candidates: Path) -> Path:
+    for candidate in candidates:
+        try:
+            if candidate and candidate.is_file():
+                return candidate.resolve()
+        except Exception:
+            continue
+    return candidates[-1].resolve()
+
+
+PRINT_PRESETS_DIR = _existing_dir(PROFILES_DIR / "print", _BUNDLED_PROFILES_DIR / "print")
+DEFAULT_PRINT_PROFILE = _existing_profile(
+    PROFILES_DIR / "print.ini",
+    _BUNDLED_PROFILES_DIR / "print.ini",
+)
+DEFAULT_FILAMENT_PROFILE = _existing_profile(
+    PROFILES_DIR / "filament.ini",
+    _BUNDLED_PROFILES_DIR / "filament.ini",
+)
+DEFAULT_PRINTER_PROFILE = _existing_profile(
+    PROFILES_DIR / "printer.ini",
+    _BUNDLED_PROFILES_DIR / "printer.ini",
+)
 
 _PRINT_PRESET_ALIASES = {
     "standard": "x1c_standard_020",
@@ -210,11 +242,30 @@ def _profile_alias(kind: str, preset: str) -> str:
     return alias or preset
 
 
+def _profile_search_dirs(kind: str) -> list[Path]:
+    primary = PRINT_PRESETS_DIR if kind == "print" else PROFILES_DIR / kind
+    bundled = (
+        _BUNDLED_PROFILES_DIR / "print"
+        if kind == "print"
+        else _BUNDLED_PROFILES_DIR / kind
+    )
+    bases = [primary, bundled, PROFILES_DIR, _BUNDLED_PROFILES_DIR]
+    dirs: list[Path] = []
+    for base in bases:
+        try:
+            if base and base.is_dir():
+                resolved = base.resolve()
+                if resolved not in dirs:
+                    dirs.append(resolved)
+        except Exception:
+            continue
+    return dirs
+
+
 def _profile_candidates(kind: str, preset: str) -> list[Path]:
     preset = _profile_alias(kind, preset)
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", preset.strip())
     candidates: list[Path] = []
-    directory = PRINT_PRESETS_DIR if kind == "print" else PROFILES_DIR / kind
     files_to_try: list[str] = []
     if cleaned.lower().endswith(".ini"):
         files_to_try.append(cleaned)
@@ -226,10 +277,8 @@ def _profile_candidates(kind: str, preset: str) -> list[Path]:
             continue
         if "/" in name or "\\" in name or name.startswith(".."):
             continue
-        candidate = directory / name if directory else PROFILES_DIR / name
-        candidates.append(candidate)
-        if directory != PROFILES_DIR:
-            candidates.append(PROFILES_DIR / name)
+        for directory in _profile_search_dirs(kind):
+            candidates.append(directory / name)
     return candidates
 
 

@@ -167,6 +167,45 @@ def _weight_from_spool(spool, filament):
         pass
     return None
 
+
+def _raw_color_hex(spool, filament):
+    raw = _first(spool, ["color_hex"]) or filament.get("color_hex")
+    if raw:
+        return raw
+    multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
+    if multi:
+        for part in str(multi).split(","):
+            part = part.strip()
+            if part:
+                return part
+    return None
+
+
+def _weight_from_spool(spool, filament):
+    weight_candidates = [
+        _first(filament, ["weight", "weight_g"]),
+        _first(spool, ["initial_weight", "initial_weight_g"]),
+    ]
+    for candidate in weight_candidates:
+        if candidate in (None, ""):
+            continue
+        try:
+            value = float(candidate)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    remaining = _first(spool, ["remaining_weight", "remaining_weight_g"])
+    used = spool.get("used_weight")
+    try:
+        if remaining is not None and used is not None:
+            value = float(remaining) + float(used)
+            if value > 0:
+                return value
+    except Exception:
+        pass
+    return None
+
 def _first(d: dict, keys):
     for k in keys:
         if d.get(k) is not None:

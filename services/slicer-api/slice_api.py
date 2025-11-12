@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math
+import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math, shutil, shlex
 import httpx
 
 app = FastAPI(title="slicer-api", version="0.9.0")
@@ -542,11 +542,49 @@ def _grams_from_mm(length_mm: float, diameter_mm: float, material: str | None) -
     vol_cm3 = (area * length_mm) / 1000.0
     return vol_cm3 * _density_guess(material)
 
+def _resolve_prusaslicer_cmd() -> list[str]:
+    env = os.getenv("PRUSASLICER_BIN")
+    if env:
+        parts = shlex.split(env)
+        if parts:
+            cmd = parts[0]
+            if shutil.which(cmd) or (os.path.isfile(cmd) and os.access(cmd, os.X_OK)):
+                return parts
+    candidates = [
+        "prusaslicer",
+        "PrusaSlicer",
+        "PrusaSlicer-console",
+        "prusa-slicer",
+        "/usr/bin/prusaslicer",
+        "/usr/local/bin/prusaslicer",
+        "/opt/prusaslicer/prusaslicer",
+        "/opt/prusaslicer/PrusaSlicer",
+        "/PrusaSlicer/PrusaSlicer",
+        "/PrusaSlicer/prusa-slicer",
+        "/app/PrusaSlicer",
+        "/app/PrusaSlicer.AppImage",
+    ]
+    for cand in candidates:
+        if os.path.basename(cand) == cand:
+            resolved = shutil.which(cand)
+            if resolved:
+                return [resolved]
+        else:
+            resolved = cand
+            if os.path.isfile(resolved) and os.access(resolved, os.X_OK):
+                return [resolved]
+    raise FileNotFoundError
+
+
 def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament: str | None, preset_printer: str | None) -> str:
     with tempfile.TemporaryDirectory() as td:
         out_path = os.path.join(td, "out.gcode")
-        args = [
-            "prusaslicer", "--export-gcode",
+        try:
+            base_cmd = _resolve_prusaslicer_cmd()
+        except FileNotFoundError:
+            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
+        args = base_cmd + [
+            "--export-gcode",
             "--load", "/profiles/print.ini",
             "--load", "/profiles/filament.ini",
             "--load", "/profiles/printer.ini",

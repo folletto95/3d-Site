@@ -99,22 +99,46 @@ DEFAULT_PRINTER_PROFILE = _existing_profile(
     _BUNDLED_PROFILES_DIR / "printer.ini",
 )
 
-_PRINT_PRESET_ALIASES = {
-    "standard": "x1c_standard_020",
-    "0.20mm standard": "x1c_standard_020",
-    "quality": "x1c_quality_016",
-    "0.16 quality": "x1c_quality_016",
-    "fine": "x1c_fine_012",
-    "0.12 fine": "x1c_fine_012",
-    "draft": "x1c_draft_028",
-    "0.28 draft": "x1c_draft_028",
-    "strength": "x1c_strength_020",
-    "0.20 strength": "x1c_strength_020",
-    "lightning": "x1c_lightning_020",
-    "0.20 lightning": "x1c_lightning_020",
-    "ultrafine": "x1c_ultrafine_008",
-    "0.08 ultra fine": "x1c_ultrafine_008",
+_PRINT_PRESET_FILES = {
+    "standard": "x1c_standard_020.ini",
+    "0.20 standard": "x1c_standard_020.ini",
+    "0.20mm standard": "x1c_standard_020.ini",
+    "x1c_standard_020": "x1c_standard_020.ini",
+    "x1c_standard_020.ini": "x1c_standard_020.ini",
+    "quality": "x1c_quality_016.ini",
+    "0.16 quality": "x1c_quality_016.ini",
+    "0.16mm quality": "x1c_quality_016.ini",
+    "0.16 quality mode": "x1c_quality_016.ini",
+    "x1c_quality_016": "x1c_quality_016.ini",
+    "x1c_quality_016.ini": "x1c_quality_016.ini",
+    "fine": "x1c_fine_012.ini",
+    "0.12 fine": "x1c_fine_012.ini",
+    "0.12mm fine": "x1c_fine_012.ini",
+    "x1c_fine_012": "x1c_fine_012.ini",
+    "x1c_fine_012.ini": "x1c_fine_012.ini",
+    "draft": "x1c_draft_028.ini",
+    "0.28 draft": "x1c_draft_028.ini",
+    "0.28mm draft": "x1c_draft_028.ini",
+    "x1c_draft_028": "x1c_draft_028.ini",
+    "x1c_draft_028.ini": "x1c_draft_028.ini",
+    "strength": "x1c_strength_020.ini",
+    "0.20 strength": "x1c_strength_020.ini",
+    "x1c_strength_020": "x1c_strength_020.ini",
+    "x1c_strength_020.ini": "x1c_strength_020.ini",
+    "lightning": "x1c_lightning_020.ini",
+    "0.20 lightning": "x1c_lightning_020.ini",
+    "x1c_lightning_020": "x1c_lightning_020.ini",
+    "x1c_lightning_020.ini": "x1c_lightning_020.ini",
+    "ultrafine": "x1c_ultrafine_008.ini",
+    "0.08 ultra fine": "x1c_ultrafine_008.ini",
+    "0.08 ultrafine": "x1c_ultrafine_008.ini",
+    "x1c_ultrafine_008": "x1c_ultrafine_008.ini",
+    "x1c_ultrafine_008.ini": "x1c_ultrafine_008.ini",
 }
+
+
+def _normalize_preset_key(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
 
 _LOG = logging.getLogger("slicer.prusaslicer")
 _LOG.addHandler(logging.NullHandler())
@@ -238,8 +262,11 @@ def _weight_from_spool(spool: dict, filament: dict) -> float | None:
 def _profile_alias(kind: str, preset: str) -> str:
     if kind != "print":
         return preset
-    alias = _PRINT_PRESET_ALIASES.get(preset.lower())
-    return alias or preset
+    key = _normalize_preset_key(str(preset))
+    mapped = _PRINT_PRESET_FILES.get(key)
+    if mapped:
+        return mapped
+    return preset
 
 
 def _profile_search_dirs(kind: str) -> list[Path]:
@@ -330,7 +357,13 @@ def _build_gcode_output_path(
     ]
     suffix = "-".join(suffix_parts) if suffix_parts else "default"
     filename = f"{base_slug}-{suffix}.gcode"
-    return str((Path(temp_dir) / filename).resolve())
+    path = (Path(temp_dir) / filename).resolve()
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        pass
+    return str(path)
 
 # ---------- paths helper ----------
 def _guess_web_dir() -> str:

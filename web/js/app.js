@@ -11,6 +11,7 @@ const fetchButton = document.getElementById('btnFetch');
 const deleteButton = document.getElementById('btnDelete');
 const estimateButton = document.getElementById('btnEstimate');
 const outputElement = document.getElementById('out');
+const WIZARD_STORAGE_KEY = 'magazzinoWizardSeen';
 
 initPalette({ containerId: 'palette', filterInputId: 'paletteFilter' });
 initPresets('preset');
@@ -521,14 +522,72 @@ function setupWizard() {
   const wizardButton = document.getElementById('btnWizard');
   const wizardOverlay = document.getElementById('wizard');
   const wizardClose = document.getElementById('wizardClose');
-  if (wizardButton && wizardOverlay) {
+  if (!wizardOverlay) {
+    return;
+  }
+
+  const isOpen = () => wizardOverlay.getAttribute('aria-hidden') === 'false';
+  const openWizard = () => {
+    wizardOverlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('wizard-open');
+    if (wizardClose) {
+      wizardClose.focus();
+    }
+  };
+  const closeWizard = () => {
+    wizardOverlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('wizard-open');
+    markWizardSeen();
+    if (wizardButton) {
+      wizardButton.focus();
+    }
+  };
+
+  if (wizardButton) {
     wizardButton.addEventListener('click', () => {
-      wizardOverlay.style.display = 'block';
+      if (!isOpen()) {
+        openWizard();
+      }
     });
   }
-  if (wizardClose && wizardOverlay) {
+
+  if (wizardClose) {
     wizardClose.addEventListener('click', () => {
-      wizardOverlay.style.display = 'none';
+      if (isOpen()) {
+        closeWizard();
+      }
     });
+  }
+
+  wizardOverlay.addEventListener('click', (event) => {
+    if (event.target === wizardOverlay && isOpen()) {
+      closeWizard();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && isOpen()) {
+      closeWizard();
+    }
+  });
+
+  if (!hasWizardBeenSeen()) {
+    openWizard();
+  }
+}
+
+function hasWizardBeenSeen() {
+  try {
+    return window.localStorage.getItem(WIZARD_STORAGE_KEY) === '1';
+  } catch (error) {
+    return false;
+  }
+}
+
+function markWizardSeen() {
+  try {
+    window.localStorage.setItem(WIZARD_STORAGE_KEY, '1');
+  } catch (error) {
+    // Ignora errori di storage (es. modalità privata)
   }
 }

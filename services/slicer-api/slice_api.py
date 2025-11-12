@@ -645,6 +645,7 @@ def _build_prusaslicer_args(
     preset_printer: str | None,
 ) -> list[str]:
     args = list(base_cmd) + [
+        "--no-gui",
         "--export-gcode",
         "--load",
         "/profiles/print.ini",

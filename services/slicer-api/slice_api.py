@@ -671,7 +671,18 @@ def _build_prusaslicer_args(
 
     args.append(input_path)
 
-    return args
+    return _sanitize_prusaslicer_args(args)
+
+
+def _sanitize_prusaslicer_args(args: list[str]) -> list[str]:
+    """Remove known unsupported flags that may sneak in via configuration."""
+
+    cleaned: list[str] = []
+    for item in args:
+        if item == "--no-gui":
+            continue
+        cleaned.append(item)
+    return cleaned
 
 
 def _invoke_prusaslicer(

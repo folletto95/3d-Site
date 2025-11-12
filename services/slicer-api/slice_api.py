@@ -1,7 +1,8 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math, shutil, shlex
+import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math, shutil, shlex, logging
+from pathlib import Path
 import httpx
 
 app = FastAPI(title="slicer-api", version="0.9.0")
@@ -42,7 +43,52 @@ SPOOLMAN_PATHS = os.getenv("SPOOLMAN_PATHS") or "/api/v1/spool/?page_size=1000,/
 CURRENCY = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = _env_float("HOURLY_RATE", 1.0)
 
+
+def _guess_profiles_dir() -> Path:
+    candidates: list[Path] = []
+    env = os.getenv("PROFILES_DIR")
+    if env:
+        candidates.append(Path(env))
+    candidates.append(Path("/profiles"))
+    here = Path(__file__).resolve()
+    candidates.append(here.parent.parent.parent / "profiles")
+    for candidate in candidates:
+        try:
+            if candidate.is_dir():
+                return candidate.resolve()
+        except Exception:
+            continue
+    return candidates[-1].resolve()
+
+
+PROFILES_DIR = _guess_profiles_dir()
+PRINT_PRESETS_DIR = PROFILES_DIR / "print"
+DEFAULT_PRINT_PROFILE = (PROFILES_DIR / "print.ini").resolve()
+DEFAULT_FILAMENT_PROFILE = (PROFILES_DIR / "filament.ini").resolve()
+DEFAULT_PRINTER_PROFILE = (PROFILES_DIR / "printer.ini").resolve()
+
+_PRINT_PRESET_ALIASES = {
+    "standard": "x1c_standard_020",
+    "0.20mm standard": "x1c_standard_020",
+    "quality": "x1c_quality_016",
+    "0.16 quality": "x1c_quality_016",
+    "fine": "x1c_fine_012",
+    "0.12 fine": "x1c_fine_012",
+    "draft": "x1c_draft_028",
+    "0.28 draft": "x1c_draft_028",
+    "strength": "x1c_strength_020",
+    "0.20 strength": "x1c_strength_020",
+    "lightning": "x1c_lightning_020",
+    "0.20 lightning": "x1c_lightning_020",
+    "ultrafine": "x1c_ultrafine_008",
+    "0.08 ultra fine": "x1c_ultrafine_008",
+}
+
+_LOG = logging.getLogger("slicer.prusaslicer")
+_LOG.addHandler(logging.NullHandler())
+
 _HEX_RE = re.compile(r"#?[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?")
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 def _bases_from_env():
     bases: list[str] = []
@@ -155,6 +201,87 @@ def _weight_from_spool(spool: dict, filament: dict) -> float | None:
     except Exception:
         pass
     return None
+
+
+def _profile_alias(kind: str, preset: str) -> str:
+    if kind != "print":
+        return preset
+    alias = _PRINT_PRESET_ALIASES.get(preset.lower())
+    return alias or preset
+
+
+def _profile_candidates(kind: str, preset: str) -> list[Path]:
+    preset = _profile_alias(kind, preset)
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", preset.strip())
+    candidates: list[Path] = []
+    directory = PRINT_PRESETS_DIR if kind == "print" else PROFILES_DIR / kind
+    files_to_try: list[str] = []
+    if cleaned.lower().endswith(".ini"):
+        files_to_try.append(cleaned)
+    else:
+        files_to_try.append(f"{cleaned}.ini")
+        files_to_try.append(cleaned)
+    for name in files_to_try:
+        if not name:
+            continue
+        if "/" in name or "\\" in name or name.startswith(".."):
+            continue
+        candidate = directory / name if directory else PROFILES_DIR / name
+        candidates.append(candidate)
+        if directory != PROFILES_DIR:
+            candidates.append(PROFILES_DIR / name)
+    return candidates
+
+
+def _resolve_profile_path(kind: str, preset: str | None) -> Path:
+    default_map = {
+        "print": DEFAULT_PRINT_PROFILE,
+        "filament": DEFAULT_FILAMENT_PROFILE,
+        "printer": DEFAULT_PRINTER_PROFILE,
+    }
+    default = default_map.get(kind, DEFAULT_PRINT_PROFILE)
+    if not preset:
+        return default
+    text = str(preset).strip()
+    if not text:
+        return default
+    for candidate in _profile_candidates(kind, text):
+        try:
+            if candidate.is_file():
+                return candidate.resolve()
+        except Exception:
+            continue
+    return default
+
+
+def _slug(value: str | None) -> str:
+    if not value:
+        return ""
+    text = str(value).lower()
+    slug = _SLUG_RE.sub("-", text).strip("-")
+    return slug[:64]
+
+
+def _build_gcode_output_path(
+    temp_dir: str,
+    model_path: str,
+    preset_print: str | None,
+    preset_filament: str | None,
+    preset_printer: str | None,
+) -> str:
+    base_name = Path(model_path).stem or "model"
+    base_slug = _slug(base_name) or "model"
+    suffix_parts = [
+        part for part in (
+            _slug(preset_print),
+            _slug(preset_filament),
+            _slug(preset_printer),
+        )
+        if part
+    ]
+    suffix = "-".join(suffix_parts) if suffix_parts else "default"
+    filename = f"{base_slug}-{suffix}.gcode"
+    return str((Path(temp_dir) / filename).resolve())
 
 # ---------- paths helper ----------
 def _guess_web_dir() -> str:
@@ -781,15 +908,19 @@ def _build_prusaslicer_args(
     preset_filament: str | None,
     preset_printer: str | None,
 ) -> list[str]:
+    printer_profile = _resolve_profile_path("printer", preset_printer)
+    filament_profile = _resolve_profile_path("filament", preset_filament)
+    print_profile = _resolve_profile_path("print", preset_print)
+
     args = list(base_cmd) + [
         "--no-gui",
         "--export-gcode",
         "--load",
-        "/profiles/print.ini",
+        str(printer_profile),
         "--load",
-        "/profiles/filament.ini",
+        str(filament_profile),
         "--load",
-        "/profiles/printer.ini",
+        str(print_profile),
         "--output",
         output_path,
     ]
@@ -836,6 +967,12 @@ def _invoke_prusaslicer(
     )
 
     try:
+        rendered_cmd = shlex.join(args)
+    except Exception:
+        rendered_cmd = " ".join(args)
+    _LOG.info("PrusaSlicer cmd: %s", rendered_cmd)
+
+    try:
         res = subprocess.run(
             args,
             capture_output=True,
@@ -854,7 +991,13 @@ def _invoke_prusaslicer(
 
 def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament: str | None, preset_printer: str | None) -> str:
     with tempfile.TemporaryDirectory() as td:
-        out_path = os.path.join(td, "out.gcode")
+        out_path = _build_gcode_output_path(
+            td,
+            model_path,
+            preset_print,
+            preset_filament,
+            preset_printer,
+        )
         _invoke_prusaslicer(
             model_path,
             out_path,

@@ -543,6 +543,7 @@ def _grams_from_mm(length_mm: float, diameter_mm: float, material: str | None) -
     return vol_cm3 * _density_guess(material)
 
 _PRUSASLICER_CMD: list[str] | None = None
+_PRUSASLICER_USE_NEW_PRESET_CLI: bool | None = None
 
 
 def _is_executable(path: str) -> bool:
@@ -571,6 +572,7 @@ def _resolve_prusaslicer_cmd() -> list[str]:
         "PrusaSlicer",
         "PrusaSlicer-console",
         "prusa-slicer",
+        "prusa-slicer-console",
         "PrusaSlicer-app",
         "PrusaSlicer.AppImage",
     ]
@@ -581,6 +583,7 @@ def _resolve_prusaslicer_cmd() -> list[str]:
         "/usr/local/bin/PrusaSlicer",
         "/opt/prusaslicer/prusaslicer",
         "/opt/prusaslicer/PrusaSlicer",
+        "/opt/prusaslicer/usr/bin/prusa-slicer",
         "/PrusaSlicer/PrusaSlicer",
         "/PrusaSlicer/prusa-slicer",
         "/app/PrusaSlicer",
@@ -634,34 +637,147 @@ def _resolve_prusaslicer_cmd() -> list[str]:
     raise FileNotFoundError
 
 
-def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament: str | None, preset_printer: str | None) -> str:
-    with tempfile.TemporaryDirectory() as td:
-        out_path = os.path.join(td, "out.gcode")
-        try:
-            base_cmd = _resolve_prusaslicer_cmd()
-        except FileNotFoundError:
-            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
-        args = base_cmd + [
-            "--export-gcode",
-            "--load", "/profiles/print.ini",
-            "--load", "/profiles/filament.ini",
-            "--load", "/profiles/printer.ini",
-            "--output", out_path,
-            model_path,
-        ]
-        if preset_print:    args.extend(["--preset", preset_print])
-        if preset_filament: args.extend(["--preset", preset_filament])
-        if preset_printer:  args.extend(["--preset", preset_printer])
+def _guess_prusaslicer_preset_mode(base_cmd: list[str]) -> bool:
+    """Return True if the CLI exposes the new --*-profile flags."""
 
+    global _PRUSASLICER_USE_NEW_PRESET_CLI
+    if _PRUSASLICER_USE_NEW_PRESET_CLI is not None:
+        return _PRUSASLICER_USE_NEW_PRESET_CLI
+
+    help_text = ""
+    try:
+        res = subprocess.run(
+            list(base_cmd) + ["--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        help_text = (res.stdout or "") + "\n" + (res.stderr or "")
+    except Exception:
+        help_text = ""
+
+    new_markers = ("--print-profile", "--material-profile", "--printer-profile")
+    old_marker = "--preset"
+
+    if any(marker in help_text for marker in new_markers):
+        _PRUSASLICER_USE_NEW_PRESET_CLI = True
+    elif old_marker in help_text:
+        _PRUSASLICER_USE_NEW_PRESET_CLI = False
+    else:
+        _PRUSASLICER_USE_NEW_PRESET_CLI = True
+
+    return _PRUSASLICER_USE_NEW_PRESET_CLI
+
+
+def _build_prusaslicer_args(
+    base_cmd: list[str],
+    input_path: str,
+    output_path: str,
+    use_new_cli: bool,
+    preset_print: str | None,
+    preset_filament: str | None,
+    preset_printer: str | None,
+) -> list[str]:
+    args = list(base_cmd) + [
+        "--export-gcode",
+        "--load",
+        "/profiles/print.ini",
+        "--load",
+        "/profiles/filament.ini",
+        "--load",
+        "/profiles/printer.ini",
+        "--output",
+        output_path,
+        input_path,
+    ]
+
+    if use_new_cli:
+        if preset_print:
+            args.extend(["--print-profile", preset_print])
+        if preset_filament:
+            args.extend(["--material-profile", preset_filament])
+        if preset_printer:
+            args.extend(["--printer-profile", preset_printer])
+    else:
+        for preset in (preset_print, preset_filament, preset_printer):
+            if preset:
+                args.extend(["--preset", preset])
+
+    return args
+
+
+def _invoke_prusaslicer(
+    input_path: str,
+    output_path: str,
+    preset_print: str | None,
+    preset_filament: str | None,
+    preset_printer: str | None,
+) -> None:
+    try:
+        base_cmd = _resolve_prusaslicer_cmd()
+    except FileNotFoundError:
+        raise HTTPException(500, "PrusaSlicer non trovato nel container.")
+
+    initial_mode = _guess_prusaslicer_preset_mode(base_cmd)
+    actual_mode = initial_mode
+
+    def _run_once(mode: bool) -> subprocess.CompletedProcess[str]:
+        args = _build_prusaslicer_args(
+            base_cmd,
+            input_path,
+            output_path,
+            mode,
+            preset_print,
+            preset_filament,
+            preset_printer,
+        )
         try:
-            res = subprocess.run(args, capture_output=True, text=True, timeout=1200)
+            return subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=1200,
+            )
         except FileNotFoundError:
             raise HTTPException(500, "PrusaSlicer non trovato nel container.")
         except subprocess.TimeoutExpired:
             raise HTTPException(504, "PrusaSlicer ha impiegato troppo tempo.")
 
-        if res.returncode != 0:
-            raise HTTPException(500, f"Errore PrusaSlicer: {res.stderr[:600]}")
+    res = _run_once(actual_mode)
+    fallback_res: subprocess.CompletedProcess[str] | None = None
+
+    if res.returncode != 0:
+        need_presets = any((preset_print, preset_filament, preset_printer))
+        if need_presets:
+            fallback_mode = not actual_mode
+            fallback_res = _run_once(fallback_mode)
+            if fallback_res.returncode == 0:
+                actual_mode = fallback_mode
+                res = fallback_res
+            else:
+                # surface the most recent stderr so the caller sees the
+                # message that triggered the failure
+                if fallback_res.stderr:
+                    res = fallback_res
+
+    if res.returncode != 0:
+        if fallback_res is not None and fallback_res.returncode != 0:
+            res = fallback_res
+        raise HTTPException(500, f"Errore PrusaSlicer: {res.stderr[:600]}")
+
+    global _PRUSASLICER_USE_NEW_PRESET_CLI
+    _PRUSASLICER_USE_NEW_PRESET_CLI = actual_mode
+
+def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament: str | None, preset_printer: str | None) -> str:
+    with tempfile.TemporaryDirectory() as td:
+        out_path = os.path.join(td, "out.gcode")
+        _invoke_prusaslicer(
+            model_path,
+            out_path,
+            preset_print,
+            preset_filament,
+            preset_printer,
+        )
 
         if not os.path.exists(out_path):
             raise HTTPException(500, "G-code non generato.")
@@ -792,32 +908,13 @@ async def slice_model(
         with open(in_path, "wb") as f:
             f.write(await model.read())
         out_path = os.path.join(td, "out.gcode")
-
-        try:
-            base_cmd = _resolve_prusaslicer_cmd()
-        except FileNotFoundError:
-            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
-        args = base_cmd + [
-            "--export-gcode",
-            "--load", "/profiles/print.ini",
-            "--load", "/profiles/filament.ini",
-            "--load", "/profiles/printer.ini",
-            "--output", out_path,
+        _invoke_prusaslicer(
             in_path,
-        ]
-        if preset_print:    args.extend(["--preset", preset_print])
-        if preset_filament: args.extend(["--preset", preset_filament])
-        if preset_printer:  args.extend(["--preset", preset_printer])
-
-        try:
-            res = subprocess.run(args, capture_output=True, text=True, timeout=1200)
-        except FileNotFoundError:
-            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "PrusaSlicer ha impiegato troppo tempo.")
-
-        if res.returncode != 0:
-            raise HTTPException(500, f"Errore PrusaSlicer: {res.stderr[:600]}")
+            out_path,
+            preset_print,
+            preset_filament,
+            preset_printer,
+        )
 
         if not os.path.exists(out_path):
             raise HTTPException(500, "G-code non generato.")

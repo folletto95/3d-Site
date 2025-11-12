@@ -501,8 +501,45 @@ async def upload_model(file: UploadFile = File(...)):
 
 # ---------- Estimation ----------
 _TIME_PAT = re.compile(r"estimated printing time(?: \(.*?\))?\s*=\s*([^\n\r;]+)", re.I)
-_FIL_G_PAT = re.compile(r"filament\s+used\s*\[\s*g\s*\]\s*=\s*([\d.]+)", re.I)
 _FIL_MM_PAT = re.compile(r"filament\s+used\s*\[\s*mm\s*\]\s*=\s*([\d.]+)", re.I)
+
+
+def _extract_filament_grams(gcode_text: str) -> float | None:
+    txt = gcode_text
+
+    pat_total = re.search(
+        r"(?im)^\s*;\s*(?:total\s*)?filament\s*(?:used|usage)\s*\[\s*g\s*\]\s*=\s*([0-9]+(?:[.,][0-9]+)?)",
+        txt,
+    )
+    if pat_total:
+        try:
+            return round(float(pat_total.group(1).replace(",", ".")), 2)
+        except Exception:
+            return None
+
+    per_extruder = re.findall(
+        r"(?im)^\s*;\s*filament\s*used\s*\[\s*g\s*\]\s*=\s*([0-9]+(?:[.,][0-9]+)?)",
+        txt,
+    )
+    if per_extruder:
+        try:
+            total = sum(float(val.replace(",", ".")) for val in per_extruder)
+            return round(total, 2)
+        except Exception:
+            return None
+
+    alt_format = re.findall(
+        r"(?im)^\s*;\s*used\s*filament\s*\(g\)\s*:\s*([0-9]+(?:[.,][0-9]+)?)",
+        txt,
+    )
+    if alt_format:
+        try:
+            total = sum(float(val.replace(",", ".")) for val in alt_format)
+            return round(total, 2)
+        except Exception:
+            return None
+
+    return None
 
 def _parse_time_to_seconds(txt: str) -> int | None:
     s = txt.strip().lower()
@@ -778,16 +815,9 @@ async def api_estimate(
     gcode = _run_prusaslicer(model_path, preset_print, preset_filament, preset_printer)
 
     # parse G-code
-    filament_g = None
+    filament_g = _extract_filament_grams(gcode)
     filament_mm = None
     time_s = None
-
-    mg = _FIL_G_PAT.search(gcode)
-    if mg:
-        try:
-            filament_g = float(mg.group(1))
-        except Exception:
-            filament_g = None
 
     mm = _FIL_MM_PAT.search(gcode)
     if mm:

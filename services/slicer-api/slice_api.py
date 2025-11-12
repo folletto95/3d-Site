@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math
+import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math, shutil, shlex
 import httpx
 
 app = FastAPI(title="slicer-api", version="0.9.0")
@@ -42,6 +42,8 @@ SPOOLMAN_PATHS = os.getenv("SPOOLMAN_PATHS") or "/api/v1/spool/?page_size=1000,/
 CURRENCY = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = _env_float("HOURLY_RATE", 1.0)
 
+_HEX_RE = re.compile(r"#?[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?")
+
 def _bases_from_env():
     bases: list[str] = []
     if SPOOLMAN_BASE:
@@ -50,9 +52,15 @@ def _bases_from_env():
         raw = raw.strip()
         if raw:
             bases.append(raw.rstrip("/"))
-    if not bases:
-        bases.append("http://spoolman:7912")
-    return list(dict.fromkeys(bases))
+    bases.append("http://spoolman:7912")
+    bases.append("http://192.168.10.164:7912")
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for base in bases:
+        if base not in seen:
+            ordered.append(base)
+            seen.add(base)
+    return ordered
 
 def _paths_from_env():
     paths: list[str] = []
@@ -91,6 +99,62 @@ def _normalize_hex(h: str | None) -> str | None:
         r, g, b = s[1], s[2], s[3]
         s = f"#{r}{r}{g}{g}{b}{b}"
     return s.upper()[:7]
+
+
+def _raw_color_hex(spool: dict, filament: dict) -> str | None:
+    def _pick_hex(value) -> str | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                c = _pick_hex(item)
+                if c:
+                    return c
+            return None
+        if isinstance(value, dict):
+            for key in ("hex", "colour", "color", "value"):
+                if key in value:
+                    c = _pick_hex(value[key])
+                    if c:
+                        return c
+            return None
+        text = str(value)
+        m = _HEX_RE.search(text)
+        if m:
+            return m.group(0)
+        return None
+
+    raw = _pick_hex(_first(spool, ["color_hex"])) or _pick_hex(filament.get("color_hex"))
+    if raw:
+        return raw
+    multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
+    return _pick_hex(multi)
+
+
+def _weight_from_spool(spool: dict, filament: dict) -> float | None:
+    weight_candidates = [
+        _first(filament, ["weight", "weight_g"]),
+        _first(spool, ["initial_weight", "initial_weight_g"]),
+    ]
+    for candidate in weight_candidates:
+        if candidate in (None, ""):
+            continue
+        try:
+            value = float(candidate)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    remaining = _first(spool, ["remaining_weight", "remaining_weight_g"])
+    used = spool.get("used_weight")
+    try:
+        if remaining is not None and used is not None:
+            value = float(remaining) + float(used)
+            if value > 0:
+                return value
+    except Exception:
+        pass
+    return None
 
 # ---------- paths helper ----------
 def _guess_web_dir() -> str:
@@ -273,7 +337,7 @@ def _extract_filament_from_spool(spool: dict) -> dict:
 
 def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
     spool_price = _first(spool, ["purchase_price", "price", "spool_price", "cost_eur", "cost"])
-    weight_g    = _first(filament, ["weight", "weight_g"])
+    weight_g = _weight_from_spool(spool, filament)
     if spool_price is not None and weight_g:
         try:
             return float(spool_price) / (float(weight_g) / 1000.0)
@@ -330,7 +394,7 @@ async def inventory():
     items: list[dict] = []
     for s in spools:
         f = _extract_filament_from_spool(s)
-        color_hex = _normalize_hex(_first(s, ["color_hex"]) or f.get("color_hex")) or "#777777"
+        color_hex = _normalize_hex(_raw_color_hex(s, f)) or "#777777"
         material = f.get("material") or s.get("material") or "N/A"
         diameter = str(f.get("diameter") or s.get("diameter") or "")
         is_trans = _detect_transparent(s, f, color_hex)
@@ -478,11 +542,107 @@ def _grams_from_mm(length_mm: float, diameter_mm: float, material: str | None) -
     vol_cm3 = (area * length_mm) / 1000.0
     return vol_cm3 * _density_guess(material)
 
+_PRUSASLICER_CMD: list[str] | None = None
+
+
+def _is_executable(path: str) -> bool:
+    try:
+        return os.path.isfile(path) and os.access(path, os.X_OK)
+    except Exception:
+        return False
+
+
+def _resolve_prusaslicer_cmd() -> list[str]:
+    global _PRUSASLICER_CMD
+    if _PRUSASLICER_CMD:
+        return list(_PRUSASLICER_CMD)
+
+    env = os.getenv("PRUSASLICER_BIN")
+    if env:
+        parts = shlex.split(env)
+        if parts:
+            cmd = parts[0]
+            if shutil.which(cmd) or _is_executable(cmd):
+                _PRUSASLICER_CMD = parts
+                return list(_PRUSASLICER_CMD)
+
+    names = [
+        "prusaslicer",
+        "PrusaSlicer",
+        "PrusaSlicer-console",
+        "prusa-slicer",
+        "PrusaSlicer-app",
+        "PrusaSlicer.AppImage",
+    ]
+    static_paths = [
+        "/usr/bin/prusaslicer",
+        "/usr/bin/PrusaSlicer",
+        "/usr/local/bin/prusaslicer",
+        "/usr/local/bin/PrusaSlicer",
+        "/opt/prusaslicer/prusaslicer",
+        "/opt/prusaslicer/PrusaSlicer",
+        "/PrusaSlicer/PrusaSlicer",
+        "/PrusaSlicer/prusa-slicer",
+        "/app/PrusaSlicer",
+        "/app/PrusaSlicer.AppImage",
+        "/app/PrusaSlicer/PrusaSlicer",
+        "/app/PrusaSlicer/prusa-slicer",
+        "/app/PrusaSlicer/bin/prusa-slicer",
+        "/app/PrusaSlicer/bin/PrusaSlicer",
+    ]
+    checked: set[str] = set()
+
+    def _register(result: list[str]) -> list[str]:
+        global _PRUSASLICER_CMD
+        _PRUSASLICER_CMD = result
+        return list(_PRUSASLICER_CMD)
+
+    for cand in names:
+        if os.path.basename(cand) == cand:
+            resolved = shutil.which(cand)
+            if resolved:
+                return _register([resolved])
+
+    for cand in static_paths:
+        if cand in checked:
+            continue
+        checked.add(cand)
+        if _is_executable(cand):
+            return _register([cand])
+
+    search_roots = [
+        "/app",
+        "/opt",
+        "/usr/local",
+    ]
+    for root in search_roots:
+        if not os.path.isdir(root):
+            continue
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                for filename in filenames:
+                    low = filename.lower()
+                    if "prusaslicer" not in low:
+                        continue
+                    path = os.path.join(dirpath, filename)
+                    if _is_executable(path):
+                        return _register([path])
+                # prune deeply nested directories quickly
+                dirnames[:] = [d for d in dirnames if "cache" not in d.lower()]
+        except Exception:
+            continue
+    raise FileNotFoundError
+
+
 def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament: str | None, preset_printer: str | None) -> str:
     with tempfile.TemporaryDirectory() as td:
         out_path = os.path.join(td, "out.gcode")
-        args = [
-            "prusaslicer", "--export-gcode",
+        try:
+            base_cmd = _resolve_prusaslicer_cmd()
+        except FileNotFoundError:
+            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
+        args = base_cmd + [
+            "--export-gcode",
             "--load", "/profiles/print.ini",
             "--load", "/profiles/filament.ini",
             "--load", "/profiles/printer.ini",
@@ -633,8 +793,12 @@ async def slice_model(
             f.write(await model.read())
         out_path = os.path.join(td, "out.gcode")
 
-        args = [
-            "prusaslicer", "--export-gcode",
+        try:
+            base_cmd = _resolve_prusaslicer_cmd()
+        except FileNotFoundError:
+            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
+        args = base_cmd + [
+            "--export-gcode",
             "--load", "/profiles/print.ini",
             "--load", "/profiles/filament.ini",
             "--load", "/profiles/printer.ini",

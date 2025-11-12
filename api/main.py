@@ -52,13 +52,33 @@ app.add_middleware(
 # docker on a local network we fall back to the original hard‑coded IP address.  This
 # ensures that existing installs continue to reach the user's Spoolman instance without
 # requiring changes to environment variables.  See README for details.
-_SPOOLMAN_BASE_RAW = (
-    os.getenv("SPOOLMAN_BASE")
-    or os.getenv("SPOOLMAN_URL")
-    or "http://192.168.10.164:7912"
-)
-SPOOLMAN_BASE = _SPOOLMAN_BASE_RAW.rstrip("/")
-API_V1 = f"{SPOOLMAN_BASE}/api/v1"
+def _split_env_list(name: str) -> list[str]:
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
+
+def _build_spoolman_bases() -> list[str]:
+    bases: list[str] = []
+    for key in ("SPOOLMAN_BASE", "SPOOLMAN_URL"):
+        raw = os.getenv(key)
+        if raw:
+            bases.append(raw.rstrip("/"))
+    for extra in _split_env_list("SPOOLMAN_BASES"):
+        bases.append(extra.rstrip("/"))
+    # Historical defaults keep existing installs working even if the hostname is unreachable
+    bases.extend([
+        "http://spoolman:7912",
+        "http://192.168.10.164:7912",
+    ])
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for base in bases:
+        if base not in seen:
+            ordered.append(base)
+            seen.add(base)
+    return ordered
+
+
+SPOOLMAN_BASES = _build_spoolman_bases()
 CURRENCY = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = float(os.getenv("HOURLY_RATE", "1"))
 
@@ -81,22 +101,52 @@ app.mount("/web", StaticFiles(directory="/app/web"), name="web")
 def _no_cache(payload: dict):
     return JSONResponse(content=payload, headers={"Cache-Control": "no-store, max-age=0"})
 
-def _get(url, params=None):
-    try:
-        headers = {}
-        if SPOOLMAN_TOKEN:
-            headers["Authorization"] = f"Bearer {SPOOLMAN_TOKEN}"
-        r = requests.get(
-            url,
-            params=params,
-            timeout=12,
-            headers=headers,
-            verify=SPOOLMAN_VERIFY_TLS,
-        )
-        r.raise_for_status()
-        return r.json()
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Errore contattando Spoolman: {e}")
+def _spoolman_urls(paths: list[str]) -> list[str]:
+    urls: list[str] = []
+    for base in SPOOLMAN_BASES:
+        for path in paths:
+            if not path:
+                continue
+            p = path if path.startswith("/") else f"/{path}"
+            urls.append(f"{base}{p}")
+    return urls
+
+
+def _get(paths, params=None):
+    if isinstance(paths, str):
+        path_list = [paths]
+    else:
+        path_list = list(paths)
+
+    attempted: list[str] = []
+    last_err: str | None = None
+    headers = {}
+    if SPOOLMAN_TOKEN:
+        headers["Authorization"] = f"Bearer {SPOOLMAN_TOKEN}"
+
+    for url in _spoolman_urls(path_list):
+        attempted.append(url)
+        try:
+            r = requests.get(
+                url,
+                params=params,
+                timeout=12,
+                headers=headers,
+                verify=SPOOLMAN_VERIFY_TLS,
+            )
+            if r.status_code == 404:
+                last_err = f"404 {url}"
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as e:
+            last_err = f"{type(e).__name__}: {e}"
+            continue
+
+    detail = f"Spoolman non raggiungibile. Tentativi: {attempted}"
+    if last_err:
+        detail += f"  Errore: {last_err}"
+    raise HTTPException(status_code=502, detail=detail)
 
 def _ensure_color_hex(v):
     if not v:
@@ -140,45 +190,6 @@ def _raw_color_hex(spool, filament):
         return raw
     multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
     return _pick_hex(multi)
-
-
-def _weight_from_spool(spool, filament):
-    weight_candidates = [
-        _first(filament, ["weight", "weight_g"]),
-        _first(spool, ["initial_weight", "initial_weight_g"]),
-    ]
-    for candidate in weight_candidates:
-        if candidate in (None, ""):
-            continue
-        try:
-            value = float(candidate)
-            if value > 0:
-                return value
-        except Exception:
-            continue
-    remaining = _first(spool, ["remaining_weight", "remaining_weight_g"])
-    used = spool.get("used_weight")
-    try:
-        if remaining is not None and used is not None:
-            value = float(remaining) + float(used)
-            if value > 0:
-                return value
-    except Exception:
-        pass
-    return None
-
-
-def _raw_color_hex(spool, filament):
-    raw = _first(spool, ["color_hex"]) or filament.get("color_hex")
-    if raw:
-        return raw
-    multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
-    if multi:
-        for part in str(multi).split(","):
-            part = part.strip()
-            if part:
-                return part
-    return None
 
 
 def _weight_from_spool(spool, filament):
@@ -254,7 +265,16 @@ def _extract_filament_from_spool(spool):
         return f
     fid = _first(spool, ["filament_id", "filamentId"])
     if fid:
-        return _get(f"{API_V1}/filament/{fid}")
+        return _get([
+            f"/api/v1/filament/{fid}",
+            f"/api/v1/filament/{fid}/",
+            f"/api/v1/filaments/{fid}",
+            f"/api/v1/filaments/{fid}/",
+            f"/api/filament/{fid}",
+            f"/api/filament/{fid}/",
+            f"/api/filaments/{fid}",
+            f"/api/filaments/{fid}/",
+        ])
     legacy = {}
     for k in ("filament_name", "name", "product"):
         if spool.get(k): legacy["name"] = spool[k]; break
@@ -272,9 +292,23 @@ def _extract_filament_from_spool(spool):
 
 # ---- Builder inventario (riusato da /inventory e /slice/estimate) ----
 def _build_inventory_items():
-    sp = _get(f"{API_V1}/spool", params={"allow_archived": False, "limit": 1000})
+    sp = _get(
+        [
+            "/api/v1/spool",
+            "/api/v1/spool/",
+            "/api/v1/spools",
+            "/api/spool",
+            "/api/spools",
+        ],
+        params={"allow_archived": False, "limit": 1000},
+    )
+    if isinstance(sp, dict):
+        spool_list = sp.get("results") or sp.get("spools") or []
+    else:
+        spool_list = sp
+
     buckets = {}
-    for s in sp:
+    for s in spool_list:
         f = _extract_filament_from_spool(s)
         color_hex = _ensure_color_hex(_raw_color_hex(s, f)) or "#777777"
         material = f.get("material") or "N/A"
@@ -405,9 +439,23 @@ def health():
 # ---- API Spoolman ----
 @app.get("/spools")
 def spools():
-    sp = _get(f"{API_V1}/spool", params={"allow_archived": False, "limit": 1000})
+    sp = _get(
+        [
+            "/api/v1/spool",
+            "/api/v1/spool/",
+            "/api/v1/spools",
+            "/api/spool",
+            "/api/spools",
+        ],
+        params={"allow_archived": False, "limit": 1000},
+    )
+    if isinstance(sp, dict):
+        spool_list = sp.get("results") or sp.get("spools") or []
+    else:
+        spool_list = sp
+
     out = []
-    for s in sp:
+    for s in spool_list:
         f = _extract_filament_from_spool(s)
         color_hex = _ensure_color_hex(_raw_color_hex(s, f))
         is_transparent = _detect_transparent(s, f)

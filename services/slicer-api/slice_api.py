@@ -52,9 +52,15 @@ def _bases_from_env():
         raw = raw.strip()
         if raw:
             bases.append(raw.rstrip("/"))
-    if not bases:
-        bases.append("http://spoolman:7912")
-    return list(dict.fromkeys(bases))
+    bases.append("http://spoolman:7912")
+    bases.append("http://192.168.10.164:7912")
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for base in bases:
+        if base not in seen:
+            ordered.append(base)
+            seen.add(base)
+    return ordered
 
 def _paths_from_env():
     paths: list[str] = []

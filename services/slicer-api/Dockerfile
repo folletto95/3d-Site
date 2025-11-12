@@ -66,10 +66,12 @@ RUN set -eux; \
         curl -fsSL "$PRUSASLICER_URL" -o /tmp/PrusaSlicer.AppImage; \
     fi; \
     chmod +x /tmp/PrusaSlicer.AppImage; \
-    /tmp/PrusaSlicer.AppImage --appimage-extract; \
-    mv /tmp/squashfs-root /opt/prusaslicer; \
+    EXTRACT_DIR="$(mktemp -d /tmp/prusaslicer-extract.XXXXXX)"; \
+    (cd "$EXTRACT_DIR" && /tmp/PrusaSlicer.AppImage --appimage-extract); \
+    rm -rf /opt/prusaslicer; \
+    mv "$EXTRACT_DIR/squashfs-root" /opt/prusaslicer; \
     rm /tmp/PrusaSlicer.AppImage; \
-    rm -rf /tmp/prusaslicer-cache
+    rm -rf /tmp/prusaslicer-cache "$EXTRACT_DIR"
 
 # Provide a stable CLI wrapper
 RUN ln -s /opt/prusaslicer/AppRun /usr/local/bin/prusaslicer-appimage \

@@ -38,6 +38,6 @@ docker build -f services/slicer-api/Dockerfile --iidfile "$IID_FILE" "${BUILD_AR
 if [[ "$VERIFY" -eq 1 ]]; then
     IMAGE_ID="$(cat "$IID_FILE")"
     echo "[build-slicer-api] Verifying PrusaSlicer binary inside image ($IMAGE_ID)"
-    docker run --rm "$IMAGE_ID" PrusaSlicer --version >/dev/null
+    docker run --rm --entrypoint PrusaSlicer "$IMAGE_ID" --version >/dev/null
     echo "[build-slicer-api] PrusaSlicer detected."
 fi

@@ -962,6 +962,7 @@ def _build_prusaslicer_args(
     print_profile = _resolve_profile_path("print", preset_print)
 
     args = list(base_cmd) + [
+        "--no-gui",
         "--export-gcode",
         "--load",
         str(printer_profile),
@@ -971,8 +972,8 @@ def _build_prusaslicer_args(
         str(print_profile),
         "--output",
         output_path,
-        input_path,
     ]
+    args.append(input_path)
 
     return _sanitize_prusaslicer_args(args)
 

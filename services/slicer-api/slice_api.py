@@ -748,20 +748,16 @@ def _invoke_prusaslicer(
 
     if res.returncode != 0:
         need_presets = any((preset_print, preset_filament, preset_printer))
-        stderr = res.stderr or ""
-        if need_presets and "Unknown option" in stderr:
-            if actual_mode and any(
-                token in stderr
-                for token in ("--print-profile", "--material-profile", "--printer-profile")
-            ):
-                fallback_res = _run_once(False)
-                if fallback_res.returncode == 0:
-                    actual_mode = False
-                    res = fallback_res
-            elif not actual_mode and "--preset" in stderr:
-                fallback_res = _run_once(True)
-                if fallback_res.returncode == 0:
-                    actual_mode = True
+        if need_presets:
+            fallback_mode = not actual_mode
+            fallback_res = _run_once(fallback_mode)
+            if fallback_res.returncode == 0:
+                actual_mode = fallback_mode
+                res = fallback_res
+            else:
+                # surface the most recent stderr so the caller sees the
+                # message that triggered the failure
+                if fallback_res.stderr:
                     res = fallback_res
 
     if res.returncode != 0:

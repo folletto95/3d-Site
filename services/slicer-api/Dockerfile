@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgtk-3-0 \
         libgusb2 \
         libice6 \
+        libfuse2 \
         libopengl0 \
         libpulse0 \
         libsm6 \

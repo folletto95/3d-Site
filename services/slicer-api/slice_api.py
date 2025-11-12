@@ -746,9 +746,24 @@ def _invoke_prusaslicer(
     res = _run_once(actual_mode)
     fallback_res: subprocess.CompletedProcess[str] | None = None
 
+    def _should_retry_with_other_mode(
+        mode: bool, completed: subprocess.CompletedProcess[str]
+    ) -> bool:
+        if completed.returncode == 0:
+            return False
+        stderr = (completed.stderr or "").lower()
+        if not stderr:
+            return False
+        if mode:
+            # When running against an older CLI the new --*-profile flags are
+            # rejected.
+            return "--print-profile" in stderr or "--material-profile" in stderr or "--printer-profile" in stderr
+        # Conversely, newer versions complain about the legacy --preset flag.
+        return "--preset" in stderr and "unknown" in stderr
+
     if res.returncode != 0:
         need_presets = any((preset_print, preset_filament, preset_printer))
-        if need_presets:
+        if need_presets and _should_retry_with_other_mode(actual_mode, res):
             fallback_mode = not actual_mode
             fallback_res = _run_once(fallback_mode)
             if fallback_res.returncode == 0:

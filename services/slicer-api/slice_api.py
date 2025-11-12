@@ -92,6 +92,45 @@ def _normalize_hex(h: str | None) -> str | None:
         s = f"#{r}{r}{g}{g}{b}{b}"
     return s.upper()[:7]
 
+
+def _raw_color_hex(spool: dict, filament: dict) -> str | None:
+    raw = _first(spool, ["color_hex"]) or filament.get("color_hex")
+    if raw:
+        return raw
+    multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
+    if multi:
+        for part in str(multi).split(","):
+            part = part.strip()
+            if part:
+                return part
+    return None
+
+
+def _weight_from_spool(spool: dict, filament: dict) -> float | None:
+    weight_candidates = [
+        _first(filament, ["weight", "weight_g"]),
+        _first(spool, ["initial_weight", "initial_weight_g"]),
+    ]
+    for candidate in weight_candidates:
+        if candidate in (None, ""):
+            continue
+        try:
+            value = float(candidate)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    remaining = _first(spool, ["remaining_weight", "remaining_weight_g"])
+    used = spool.get("used_weight")
+    try:
+        if remaining is not None and used is not None:
+            value = float(remaining) + float(used)
+            if value > 0:
+                return value
+    except Exception:
+        pass
+    return None
+
 # ---------- paths helper ----------
 def _guess_web_dir() -> str:
     env = os.getenv("WEB_DIR")
@@ -273,7 +312,7 @@ def _extract_filament_from_spool(spool: dict) -> dict:
 
 def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
     spool_price = _first(spool, ["purchase_price", "price", "spool_price", "cost_eur", "cost"])
-    weight_g    = _first(filament, ["weight", "weight_g"])
+    weight_g = _weight_from_spool(spool, filament)
     if spool_price is not None and weight_g:
         try:
             return float(spool_price) / (float(weight_g) / 1000.0)
@@ -330,7 +369,7 @@ async def inventory():
     items: list[dict] = []
     for s in spools:
         f = _extract_filament_from_spool(s)
-        color_hex = _normalize_hex(_first(s, ["color_hex"]) or f.get("color_hex")) or "#777777"
+        color_hex = _normalize_hex(_raw_color_hex(s, f)) or "#777777"
         material = f.get("material") or s.get("material") or "N/A"
         diameter = str(f.get("diameter") or s.get("diameter") or "")
         is_trans = _detect_transparent(s, f, color_hex)

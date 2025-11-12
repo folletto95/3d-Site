@@ -80,6 +80,45 @@ def _ensure_color_hex(v):
     if not v: return None
     return v if str(v).startswith("#") else f"#{v}"
 
+
+def _raw_color_hex(spool, filament):
+    raw = _first(spool, ["color_hex"]) or filament.get("color_hex")
+    if raw:
+        return raw
+    multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
+    if multi:
+        for part in str(multi).split(","):
+            part = part.strip()
+            if part:
+                return part
+    return None
+
+
+def _weight_from_spool(spool, filament):
+    weight_candidates = [
+        _first(filament, ["weight", "weight_g"]),
+        _first(spool, ["initial_weight", "initial_weight_g"]),
+    ]
+    for candidate in weight_candidates:
+        if candidate in (None, ""):
+            continue
+        try:
+            value = float(candidate)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    remaining = _first(spool, ["remaining_weight", "remaining_weight_g"])
+    used = spool.get("used_weight")
+    try:
+        if remaining is not None and used is not None:
+            value = float(remaining) + float(used)
+            if value > 0:
+                return value
+    except Exception:
+        pass
+    return None
+
 def _first(d: dict, keys):
     for k in keys:
         if d.get(k) is not None:
@@ -99,7 +138,7 @@ def _price_per_kg_from_filament(f):
 
 def _price_per_kg_from_spool(spool, filament):
     spool_price = _first(spool, ["purchase_price", "price", "spool_price", "cost_eur", "cost"])
-    weight_g = _first(filament, ["weight", "weight_g"])
+    weight_g = _weight_from_spool(spool, filament)
     if spool_price is not None and weight_g:
         try:
             return float(spool_price) / (float(weight_g) / 1000.0)
@@ -150,7 +189,7 @@ def _build_inventory_items():
     buckets = {}
     for s in sp:
         f = _extract_filament_from_spool(s)
-        color_hex = _ensure_color_hex(_first(s, ["color_hex"]) or f.get("color_hex")) or "#777777"
+        color_hex = _ensure_color_hex(_raw_color_hex(s, f)) or "#777777"
         material = f.get("material") or "N/A"
         diameter = str(f.get("diameter") or "")
         is_transparent = _detect_transparent(s, f)
@@ -283,7 +322,7 @@ def spools():
     out = []
     for s in sp:
         f = _extract_filament_from_spool(s)
-        color_hex = _ensure_color_hex(_first(s, ["color_hex"]) or f.get("color_hex"))
+        color_hex = _ensure_color_hex(_raw_color_hex(s, f))
         is_transparent = _detect_transparent(s, f)
         price_per_kg = _price_per_kg_from_spool(s, f)
         out.append({

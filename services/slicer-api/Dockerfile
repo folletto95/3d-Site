@@ -75,10 +75,10 @@ RUN set -eux; \
 
 # Provide a stable CLI wrapper
 RUN ln -s /opt/prusaslicer/AppRun /usr/local/bin/prusaslicer-appimage \
-    && ln -sf /opt/prusaslicer/usr/bin/prusa-slicer-console /usr/local/bin/prusa-slicer-console \
-    && printf '#!/bin/sh\nexec /opt/prusaslicer/usr/bin/prusa-slicer-console "$@"\n' > /usr/local/bin/prusaslicer-cli \
+    && ln -sf /opt/prusaslicer/usr/bin/prusa-slicer /usr/local/bin/prusa-slicer \
+    && printf '#!/bin/sh\nexec /opt/prusaslicer/usr/bin/prusa-slicer --no-gui "$@"\n' > /usr/local/bin/prusaslicer-cli \
     && chmod +x /usr/local/bin/prusaslicer-cli \
-    && ln -s /usr/local/bin/prusaslicer-cli /usr/local/bin/PrusaSlicer
+    && ln -sf /usr/local/bin/prusaslicer-cli /usr/local/bin/PrusaSlicer
 
 ENV PRUSASLICER_BIN=/usr/local/bin/prusaslicer-cli
 

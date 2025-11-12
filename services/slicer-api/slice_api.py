@@ -571,6 +571,7 @@ def _resolve_prusaslicer_cmd() -> list[str]:
         "PrusaSlicer",
         "PrusaSlicer-console",
         "prusa-slicer",
+        "prusa-slicer-console",
         "PrusaSlicer-app",
         "PrusaSlicer.AppImage",
     ]
@@ -581,6 +582,7 @@ def _resolve_prusaslicer_cmd() -> list[str]:
         "/usr/local/bin/PrusaSlicer",
         "/opt/prusaslicer/prusaslicer",
         "/opt/prusaslicer/PrusaSlicer",
+        "/opt/prusaslicer/usr/bin/prusa-slicer",
         "/PrusaSlicer/PrusaSlicer",
         "/PrusaSlicer/prusa-slicer",
         "/app/PrusaSlicer",

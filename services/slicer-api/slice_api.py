@@ -501,8 +501,15 @@ async def upload_model(file: UploadFile = File(...)):
 
 # ---------- Estimation ----------
 _TIME_PAT = re.compile(r"estimated printing time(?: \(.*?\))?\s*=\s*([^\n\r;]+)", re.I)
-_FIL_G_PAT = re.compile(r"filament\s+used\s*\[\s*g\s*\]\s*=\s*([\d.]+)", re.I)
-_FIL_MM_PAT = re.compile(r"filament\s+used\s*\[\s*mm\s*\]\s*=\s*([\d.]+)", re.I)
+_FIL_USAGE_PATTERNS = [
+    re.compile(r";\s*filament\s+used\s*\[\s*([^\]]+)\s*\]\s*[=:]\s*([\d.,eE+-]+)", re.I),
+    re.compile(r";\s*total\s+filament\s+used\s*\[\s*([^\]]+)\s*\]\s*[=:]\s*([\d.,eE+-]+)", re.I),
+    re.compile(r";\s*material\s+used\s*\[\s*([^\]]+)\s*\]\s*[=:]\s*([\d.,eE+-]+)", re.I),
+]
+_FIL_USAGE_SIMPLE_PATTERNS = [
+    re.compile(r";\s*estimated\s+filament\s+usage\s*[:=]\s*([\d.,eE+-]+)\s*([a-zA-Z0-9^]+)?", re.I),
+    re.compile(r";\s*total\s+filament\s*[:=]\s*([\d.,eE+-]+)\s*([a-zA-Z0-9^]+)?", re.I),
+]
 
 def _parse_time_to_seconds(txt: str) -> int | None:
     s = txt.strip().lower()
@@ -541,6 +548,136 @@ def _grams_from_mm(length_mm: float, diameter_mm: float, material: str | None) -
     area = math.pi * (diameter_mm/2.0)**2  # mm^2
     vol_cm3 = (area * length_mm) / 1000.0
     return vol_cm3 * _density_guess(material)
+
+def _grams_from_volume_mm3(volume_mm3: float, material: str | None) -> float:
+    return (volume_mm3 / 1000.0) * _density_guess(material)
+
+
+def _parse_decimal(value: str) -> float | None:
+    try:
+        return float(value.replace(",", "."))
+    except Exception:
+        return None
+
+
+def _parse_filament_usage_from_comments(gcode: str) -> tuple[float | None, float | None, float | None]:
+    total_g = 0.0
+    total_len_mm = 0.0
+    total_vol_mm3 = 0.0
+
+    for pattern in _FIL_USAGE_PATTERNS:
+        for match in pattern.finditer(gcode):
+            unit = (match.group(1) or "").strip().lower().replace(" ", "")
+            value = _parse_decimal(match.group(2) or "")
+            if value is None:
+                continue
+            if unit in {"g", "gram", "grams"}:
+                total_g += value
+            elif unit in {"kg"}:
+                total_g += value * 1000.0
+            elif unit in {"mm"}:
+                total_len_mm += value
+            elif unit in {"m"}:
+                total_len_mm += value * 1000.0
+            elif unit in {"cm3", "cm^3"}:
+                total_vol_mm3 += value * 1000.0
+            elif unit in {"mm3", "mm^3"}:
+                total_vol_mm3 += value
+
+    for pattern in _FIL_USAGE_SIMPLE_PATTERNS:
+        for match in pattern.finditer(gcode):
+            value = _parse_decimal(match.group(1) or "")
+            if value is None:
+                continue
+            unit = (match.group(2) or "").strip().lower().replace(" ", "")
+            if not unit:
+                total_g += value
+                continue
+            if unit in {"g", "gram", "grams"}:
+                total_g += value
+            elif unit in {"kg"}:
+                total_g += value * 1000.0
+            elif unit in {"mm"}:
+                total_len_mm += value
+            elif unit in {"m"}:
+                total_len_mm += value * 1000.0
+            elif unit in {"cm3", "cm^3"}:
+                total_vol_mm3 += value * 1000.0
+            elif unit in {"mm3", "mm^3"}:
+                total_vol_mm3 += value
+
+    grams = total_g if total_g > 0 else None
+    length = total_len_mm if total_len_mm > 0 else None
+    volume = total_vol_mm3 if total_vol_mm3 > 0 else None
+    return grams, length, volume
+
+
+def _estimate_filament_length_from_gcode_text(gcode: str) -> float:
+    totals: dict[int, float] = {}
+    last_e: dict[int, float | None] = {}
+    current_tool = 0
+    relative_mode = False
+
+    totals.setdefault(current_tool, 0.0)
+    last_e.setdefault(current_tool, None)
+
+    for raw_line in gcode.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if ";" in line:
+            line = line.split(";", 1)[0].strip()
+            if not line:
+                continue
+
+        upper = line.upper()
+
+        if upper.startswith("T") and len(line) > 1 and line[1].isdigit():
+            try:
+                current_tool = int(re.match(r"T(\d+)", line).group(1))
+            except Exception:
+                current_tool = 0
+            totals.setdefault(current_tool, 0.0)
+            last_e.setdefault(current_tool, None)
+            continue
+
+        if "M82" in upper:
+            relative_mode = False
+            last_e[current_tool] = None
+            continue
+        if "M83" in upper:
+            relative_mode = True
+            last_e[current_tool] = None
+            continue
+
+        if ("G92" in upper or "M92" in upper) and "E" in upper:
+            last_e[current_tool] = 0.0 if not relative_mode else None
+            continue
+
+        match = re.search(r"\bE([+-]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)", line)
+        if not match:
+            continue
+
+        value = _parse_decimal(match.group(1))
+        if value is None:
+            continue
+
+        if relative_mode:
+            diff = value
+        else:
+            prev = last_e.get(current_tool)
+            if prev is None:
+                last_e[current_tool] = value
+                continue
+            diff = value - prev
+            last_e[current_tool] = value
+
+        if diff <= 0 or diff > 1000:
+            continue
+
+        totals[current_tool] = totals.get(current_tool, 0.0) + diff
+
+    return sum(totals.values())
 
 _PRUSASLICER_CMD: list[str] | None = None
 
@@ -782,19 +919,13 @@ async def api_estimate(
     filament_mm = None
     time_s = None
 
-    mg = _FIL_G_PAT.search(gcode)
-    if mg:
-        try:
-            filament_g = float(mg.group(1))
-        except Exception:
-            filament_g = None
-
-    mm = _FIL_MM_PAT.search(gcode)
-    if mm:
-        try:
-            filament_mm = float(mm.group(1))
-        except Exception:
-            filament_mm = None
+    grams_comment, mm_comment, vol_comment = _parse_filament_usage_from_comments(gcode)
+    if grams_comment is not None:
+        filament_g = grams_comment
+    if mm_comment is not None:
+        filament_mm = mm_comment
+    if filament_g is None and vol_comment is not None:
+        filament_g = _grams_from_volume_mm3(vol_comment, material)
 
     mt = _TIME_PAT.search(gcode)
     if mt:
@@ -807,6 +938,17 @@ async def api_estimate(
         except Exception:
             diam = 1.75
         filament_g = _grams_from_mm(filament_mm, diam, material)
+
+    if filament_mm is None or filament_g is None:
+        fallback_mm = _estimate_filament_length_from_gcode_text(gcode)
+        if fallback_mm > 0 and filament_mm is None:
+            filament_mm = fallback_mm
+        if filament_g is None and filament_mm is not None:
+            try:
+                diam = float(str(diameter or "1.75").replace(",", "."))
+            except Exception:
+                diam = 1.75
+            filament_g = _grams_from_mm(filament_mm, diam, material)
 
     # costi
     rate = hourly_rate if hourly_rate is not None else HOURLY_RATE

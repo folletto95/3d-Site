@@ -542,37 +542,95 @@ def _grams_from_mm(length_mm: float, diameter_mm: float, material: str | None) -
     vol_cm3 = (area * length_mm) / 1000.0
     return vol_cm3 * _density_guess(material)
 
+_PRUSASLICER_CMD: list[str] | None = None
+
+
+def _is_executable(path: str) -> bool:
+    try:
+        return os.path.isfile(path) and os.access(path, os.X_OK)
+    except Exception:
+        return False
+
+
 def _resolve_prusaslicer_cmd() -> list[str]:
+    global _PRUSASLICER_CMD
+    if _PRUSASLICER_CMD:
+        return list(_PRUSASLICER_CMD)
+
     env = os.getenv("PRUSASLICER_BIN")
     if env:
         parts = shlex.split(env)
         if parts:
             cmd = parts[0]
-            if shutil.which(cmd) or (os.path.isfile(cmd) and os.access(cmd, os.X_OK)):
-                return parts
-    candidates = [
+            if shutil.which(cmd) or _is_executable(cmd):
+                _PRUSASLICER_CMD = parts
+                return list(_PRUSASLICER_CMD)
+
+    names = [
         "prusaslicer",
         "PrusaSlicer",
         "PrusaSlicer-console",
         "prusa-slicer",
+        "PrusaSlicer-app",
+        "PrusaSlicer.AppImage",
+    ]
+    static_paths = [
         "/usr/bin/prusaslicer",
+        "/usr/bin/PrusaSlicer",
         "/usr/local/bin/prusaslicer",
+        "/usr/local/bin/PrusaSlicer",
         "/opt/prusaslicer/prusaslicer",
         "/opt/prusaslicer/PrusaSlicer",
         "/PrusaSlicer/PrusaSlicer",
         "/PrusaSlicer/prusa-slicer",
         "/app/PrusaSlicer",
         "/app/PrusaSlicer.AppImage",
+        "/app/PrusaSlicer/PrusaSlicer",
+        "/app/PrusaSlicer/prusa-slicer",
+        "/app/PrusaSlicer/bin/prusa-slicer",
+        "/app/PrusaSlicer/bin/PrusaSlicer",
     ]
-    for cand in candidates:
+    checked: set[str] = set()
+
+    def _register(result: list[str]) -> list[str]:
+        global _PRUSASLICER_CMD
+        _PRUSASLICER_CMD = result
+        return list(_PRUSASLICER_CMD)
+
+    for cand in names:
         if os.path.basename(cand) == cand:
             resolved = shutil.which(cand)
             if resolved:
-                return [resolved]
-        else:
-            resolved = cand
-            if os.path.isfile(resolved) and os.access(resolved, os.X_OK):
-                return [resolved]
+                return _register([resolved])
+
+    for cand in static_paths:
+        if cand in checked:
+            continue
+        checked.add(cand)
+        if _is_executable(cand):
+            return _register([cand])
+
+    search_roots = [
+        "/app",
+        "/opt",
+        "/usr/local",
+    ]
+    for root in search_roots:
+        if not os.path.isdir(root):
+            continue
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                for filename in filenames:
+                    low = filename.lower()
+                    if "prusaslicer" not in low:
+                        continue
+                    path = os.path.join(dirpath, filename)
+                    if _is_executable(path):
+                        return _register([path])
+                # prune deeply nested directories quickly
+                dirnames[:] = [d for d in dirnames if "cache" not in d.lower()]
+        except Exception:
+            continue
     raise FileNotFoundError
 
 
@@ -735,8 +793,12 @@ async def slice_model(
             f.write(await model.read())
         out_path = os.path.join(td, "out.gcode")
 
-        args = [
-            "prusaslicer", "--export-gcode",
+        try:
+            base_cmd = _resolve_prusaslicer_cmd()
+        except FileNotFoundError:
+            raise HTTPException(500, "PrusaSlicer non trovato nel container.")
+        args = base_cmd + [
+            "--export-gcode",
             "--load", "/profiles/print.ini",
             "--load", "/profiles/filament.ini",
             "--load", "/profiles/printer.ini",

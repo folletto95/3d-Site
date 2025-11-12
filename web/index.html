@@ -46,6 +46,52 @@
     .out{margin-top:20px;font-size:18px;line-height:1.5;background:#0b1527;padding:12px;border-radius:10px;color:var(--text)}
     .out b{color:var(--accent);font-size:20px}
     .advanced { display: none; }
+    .wizard-toggle {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: var(--card);
+      border: 1px solid var(--ring);
+      color: var(--accent);
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      z-index: 1000;
+      cursor: pointer;
+      transition: background .2s ease;
+    }
+    .wizard-toggle:hover,
+    .wizard-toggle:focus-visible {
+      background: #142033;
+      outline: none;
+    }
+    .wizard-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      z-index: 999;
+      padding: 24px;
+      overflow-y: auto;
+    }
+    .wizard-overlay[aria-hidden="false"] {
+      display: block;
+    }
+    .wizard-box {
+      max-width: 600px;
+      margin: 60px auto;
+      background: var(--card);
+      color: var(--text);
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.5);
+    }
+    body.wizard-open {
+      overflow: hidden;
+    }
   </style>
 
   <!-- Import map per Three r160+ (DEVE stare nel <head> prima dei moduli) -->
@@ -156,11 +202,11 @@
     </div>
   </div>
 
-  <button id="btnWizard" title="Apri guida" style="position:fixed;top:16px;right:16px;background:var(--card);border:1px solid var(--ring);color:var(--accent);padding:8px 12px;border-radius:12px;font-size:14px;z-index:1000;cursor:pointer">Guida</button>
+  <button id="btnWizard" class="wizard-toggle" type="button" title="Apri guida introduttiva">Guida</button>
 
-  <div id="wizard" class="wizard-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:999;">
-    <div class="wizard-box" style="max-width:600px;margin:10% auto;background:var(--card);color:var(--text);padding:24px;border-radius:16px;box-shadow:0 0 12px rgba(0,0,0,0.5);">
-      <h2 style="margin-top:0">Benvenuto!</h2>
+  <div id="wizard" class="wizard-overlay" aria-hidden="true">
+    <div class="wizard-box" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+      <h2 id="wizardTitle" style="margin-top:0">Benvenuto!</h2>
       <p>Questa guida ti accompagna ai passi per ottenere una stima:</p>
       <ol style="line-height:1.6">
         <li><b>Scegli un materiale</b> dalla palette.</li>
@@ -168,7 +214,7 @@
         <li><b>Scegli il preset</b> (X1C di default).</li>
         <li><b>Premi Stima</b> per G-code, tempi e costi.</li>
       </ol>
-      <p style="margin-top:20px;text-align:right"><button id="wizardClose" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
+      <p style="margin-top:20px;text-align:right"><button id="wizardClose" type="button" style="background:var(--accent);color:#000;padding:8px 16px;border:none;border-radius:10px;cursor:pointer">Chiudi</button></p>
     </div>
   </div>
 

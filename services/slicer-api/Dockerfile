@@ -1,4 +1,3 @@
-# services/slicer-api/Dockerfile  (HTTPX fix)
 FROM xabix99/prusaslicer:latest
 
 ENV DEBIAN_FRONTEND=noninteractive TZ=Europe/Rome

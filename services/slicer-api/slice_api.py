@@ -42,6 +42,8 @@ SPOOLMAN_PATHS = os.getenv("SPOOLMAN_PATHS") or "/api/v1/spool/?page_size=1000,/
 CURRENCY = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = _env_float("HOURLY_RATE", 1.0)
 
+_HEX_RE = re.compile(r"#?[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?")
+
 def _bases_from_env():
     bases: list[str] = []
     if SPOOLMAN_BASE:
@@ -94,16 +96,33 @@ def _normalize_hex(h: str | None) -> str | None:
 
 
 def _raw_color_hex(spool: dict, filament: dict) -> str | None:
-    raw = _first(spool, ["color_hex"]) or filament.get("color_hex")
+    def _pick_hex(value) -> str | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                c = _pick_hex(item)
+                if c:
+                    return c
+            return None
+        if isinstance(value, dict):
+            for key in ("hex", "colour", "color", "value"):
+                if key in value:
+                    c = _pick_hex(value[key])
+                    if c:
+                        return c
+            return None
+        text = str(value)
+        m = _HEX_RE.search(text)
+        if m:
+            return m.group(0)
+        return None
+
+    raw = _pick_hex(_first(spool, ["color_hex"])) or _pick_hex(filament.get("color_hex"))
     if raw:
         return raw
     multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
-    if multi:
-        for part in str(multi).split(","):
-            part = part.strip()
-            if part:
-                return part
-    return None
+    return _pick_hex(multi)
 
 
 def _weight_from_spool(spool: dict, filament: dict) -> float | None:

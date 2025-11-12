@@ -52,10 +52,23 @@ app.add_middleware(
 # docker on a local network we fall back to the original hard‑coded IP address.  This
 # ensures that existing installs continue to reach the user's Spoolman instance without
 # requiring changes to environment variables.  See README for details.
-SPOOLMAN_BASE = os.getenv("SPOOLMAN_URL", "http://192.168.10.164:7912").rstrip("/")
+_SPOOLMAN_BASE_RAW = (
+    os.getenv("SPOOLMAN_BASE")
+    or os.getenv("SPOOLMAN_URL")
+    or "http://192.168.10.164:7912"
+)
+SPOOLMAN_BASE = _SPOOLMAN_BASE_RAW.rstrip("/")
 API_V1 = f"{SPOOLMAN_BASE}/api/v1"
 CURRENCY = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = float(os.getenv("HOURLY_RATE", "1"))
+
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+SPOOLMAN_VERIFY_TLS = not _env_truthy("SPOOLMAN_SKIP_TLS_VERIFY")
+SPOOLMAN_TOKEN = os.getenv("SPOOLMAN_TOKEN")
+
+_HEX_RE = re.compile(r"#?[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?")
 
 UPLOAD_ROOT = Path("/app/uploads")
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -70,15 +83,89 @@ def _no_cache(payload: dict):
 
 def _get(url, params=None):
     try:
-        r = requests.get(url, params=params, timeout=12)
+        headers = {}
+        if SPOOLMAN_TOKEN:
+            headers["Authorization"] = f"Bearer {SPOOLMAN_TOKEN}"
+        r = requests.get(
+            url,
+            params=params,
+            timeout=12,
+            headers=headers,
+            verify=SPOOLMAN_VERIFY_TLS,
+        )
         r.raise_for_status()
         return r.json()
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Errore contattando Spoolman: {e}")
 
 def _ensure_color_hex(v):
-    if not v: return None
-    return v if str(v).startswith("#") else f"#{v}"
+    if not v:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    if not s.startswith("#"):
+        s = f"#{s}"
+    if len(s) == 4:
+        r, g, b = s[1], s[2], s[3]
+        s = f"#{r}{r}{g}{g}{b}{b}"
+    return s.upper()[:7]
+
+
+def _raw_color_hex(spool, filament):
+    def _pick_hex(value):
+        if value in (None, ""):
+            return None
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                c = _pick_hex(item)
+                if c:
+                    return c
+            return None
+        if isinstance(value, dict):
+            for key in ("hex", "colour", "color", "value"):
+                if key in value:
+                    c = _pick_hex(value[key])
+                    if c:
+                        return c
+            return None
+        text = str(value)
+        m = _HEX_RE.search(text)
+        if m:
+            return m.group(0)
+        return None
+
+    raw = _pick_hex(_first(spool, ["color_hex"])) or _pick_hex(filament.get("color_hex"))
+    if raw:
+        return raw
+    multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
+    return _pick_hex(multi)
+
+
+def _weight_from_spool(spool, filament):
+    weight_candidates = [
+        _first(filament, ["weight", "weight_g"]),
+        _first(spool, ["initial_weight", "initial_weight_g"]),
+    ]
+    for candidate in weight_candidates:
+        if candidate in (None, ""):
+            continue
+        try:
+            value = float(candidate)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    remaining = _first(spool, ["remaining_weight", "remaining_weight_g"])
+    used = spool.get("used_weight")
+    try:
+        if remaining is not None and used is not None:
+            value = float(remaining) + float(used)
+            if value > 0:
+                return value
+    except Exception:
+        pass
+    return None
 
 
 def _raw_color_hex(spool, filament):

@@ -42,6 +42,8 @@ SPOOLMAN_PATHS = os.getenv("SPOOLMAN_PATHS") or "/api/v1/spool/?page_size=1000,/
 CURRENCY = os.getenv("CURRENCY", "EUR")
 HOURLY_RATE = _env_float("HOURLY_RATE", 1.0)
 
+_HEX_RE = re.compile(r"#?[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?")
+
 def _bases_from_env():
     bases: list[str] = []
     if SPOOLMAN_BASE:
@@ -50,9 +52,15 @@ def _bases_from_env():
         raw = raw.strip()
         if raw:
             bases.append(raw.rstrip("/"))
-    if not bases:
-        bases.append("http://spoolman:7912")
-    return list(dict.fromkeys(bases))
+    bases.append("http://spoolman:7912")
+    bases.append("http://192.168.10.164:7912")
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for base in bases:
+        if base not in seen:
+            ordered.append(base)
+            seen.add(base)
+    return ordered
 
 def _paths_from_env():
     paths: list[str] = []
@@ -91,6 +99,62 @@ def _normalize_hex(h: str | None) -> str | None:
         r, g, b = s[1], s[2], s[3]
         s = f"#{r}{r}{g}{g}{b}{b}"
     return s.upper()[:7]
+
+
+def _raw_color_hex(spool: dict, filament: dict) -> str | None:
+    def _pick_hex(value) -> str | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                c = _pick_hex(item)
+                if c:
+                    return c
+            return None
+        if isinstance(value, dict):
+            for key in ("hex", "colour", "color", "value"):
+                if key in value:
+                    c = _pick_hex(value[key])
+                    if c:
+                        return c
+            return None
+        text = str(value)
+        m = _HEX_RE.search(text)
+        if m:
+            return m.group(0)
+        return None
+
+    raw = _pick_hex(_first(spool, ["color_hex"])) or _pick_hex(filament.get("color_hex"))
+    if raw:
+        return raw
+    multi = _first(spool, ["multi_color_hexes"]) or filament.get("multi_color_hexes")
+    return _pick_hex(multi)
+
+
+def _weight_from_spool(spool: dict, filament: dict) -> float | None:
+    weight_candidates = [
+        _first(filament, ["weight", "weight_g"]),
+        _first(spool, ["initial_weight", "initial_weight_g"]),
+    ]
+    for candidate in weight_candidates:
+        if candidate in (None, ""):
+            continue
+        try:
+            value = float(candidate)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    remaining = _first(spool, ["remaining_weight", "remaining_weight_g"])
+    used = spool.get("used_weight")
+    try:
+        if remaining is not None and used is not None:
+            value = float(remaining) + float(used)
+            if value > 0:
+                return value
+    except Exception:
+        pass
+    return None
 
 # ---------- paths helper ----------
 def _guess_web_dir() -> str:
@@ -273,7 +337,7 @@ def _extract_filament_from_spool(spool: dict) -> dict:
 
 def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
     spool_price = _first(spool, ["purchase_price", "price", "spool_price", "cost_eur", "cost"])
-    weight_g    = _first(filament, ["weight", "weight_g"])
+    weight_g = _weight_from_spool(spool, filament)
     if spool_price is not None and weight_g:
         try:
             return float(spool_price) / (float(weight_g) / 1000.0)
@@ -330,7 +394,7 @@ async def inventory():
     items: list[dict] = []
     for s in spools:
         f = _extract_filament_from_spool(s)
-        color_hex = _normalize_hex(_first(s, ["color_hex"]) or f.get("color_hex")) or "#777777"
+        color_hex = _normalize_hex(_raw_color_hex(s, f)) or "#777777"
         material = f.get("material") or s.get("material") or "N/A"
         diameter = str(f.get("diameter") or s.get("diameter") or "")
         is_trans = _detect_transparent(s, f, color_hex)

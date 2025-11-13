@@ -140,6 +140,7 @@ async function handleEstimate() {
     viewer_url: state.currentViewerUrl,
     inventory_key: state.selectedKey,
     machine: state.selectedMachine,
+    preset_print: undefined,
     settings: {
       machine: state.selectedMachine,
       layer_h: parseFloat(getValue('layer_h', '0.2')),
@@ -149,6 +150,11 @@ async function handleEstimate() {
       travel_speed: parseFloat(getValue('travel_speed', '150')),
     },
   };
+
+  const presetSelect = document.getElementById('preset');
+  if (presetSelect && presetSelect.value) {
+    payload.preset_print = presetSelect.value;
+  }
 
   try {
     const selectedItem = getSelectedInventoryItem();
@@ -304,8 +310,9 @@ async function requestLegacyEstimate(payload, selectedItem) {
     formData.append('model_url', payload.viewer_url);
   }
   const presetSelect = document.getElementById('preset');
-  if (presetSelect && presetSelect.value) {
-    formData.append('preset_print', presetSelect.value);
+  const presetValue = payload && payload.preset_print ? payload.preset_print : (presetSelect && presetSelect.value);
+  if (presetValue) {
+    formData.append('preset_print', presetValue);
   }
   if (selectedItem.material) {
     formData.append('material', selectedItem.material);
@@ -328,6 +335,7 @@ async function requestLegacyEstimate(payload, selectedItem) {
   const response = await apiFetch('/api/estimate', {
     method: 'POST',
     body: formData,
+    cache: 'no-store',
   });
   if (!response.ok && !appendedFile) {
     // Alcuni ambienti legacy richiedono obbligatoriamente il file del modello;
@@ -343,8 +351,8 @@ async function requestLegacyEstimate(payload, selectedItem) {
     if (payload.viewer_url && payload.viewer_url !== legacyViewerUrl) {
       retryForm.append('model_url', payload.viewer_url);
     }
-    if (presetSelect && presetSelect.value) {
-      retryForm.append('preset_print', presetSelect.value);
+    if (presetValue) {
+      retryForm.append('preset_print', presetValue);
     }
     if (selectedItem.material) {
       retryForm.append('material', selectedItem.material);
@@ -362,6 +370,7 @@ async function requestLegacyEstimate(payload, selectedItem) {
       const retryResponse = await apiFetch('/api/estimate', {
         method: 'POST',
         body: retryForm,
+        cache: 'no-store',
       });
       return await handleLegacyResponse(retryResponse, selectedItem);
     }

@@ -2,14 +2,86 @@ import { state, setSelectedMachine } from './state.js';
 
 const DEFAULT_PRESET_KEY = 'x1c_standard_020';
 const PRESETS = {
-  '': { machine: 'generic', layer_h: 0.2, infill: 15, nozzle: 0.4, print_speed: 60, travel_speed: 150 },
-  x1c_standard_020: { machine: 'bambu_x1c', layer_h: 0.2, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
-  x1c_quality_016: { machine: 'bambu_x1c', layer_h: 0.16, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
-  x1c_fine_012: { machine: 'bambu_x1c', layer_h: 0.12, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
-  x1c_draft_028: { machine: 'bambu_x1c', layer_h: 0.28, infill: 15, nozzle: 0.4, print_speed: 250, travel_speed: 500 },
-  x1c_strength_020: { machine: 'bambu_x1c', layer_h: 0.2, infill: 50, nozzle: 0.4, print_speed: 180, travel_speed: 500 },
-  x1c_lightning_020: { machine: 'bambu_x1c', layer_h: 0.2, infill: 10, nozzle: 0.4, print_speed: 300, travel_speed: 500 },
-  x1c_ultrafine_008: { machine: 'bambu_x1c', layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
+  '': {
+    machine: 'generic',
+    profile: 'print.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.2,
+    infill: 15,
+    nozzle: 0.4,
+    print_speed: 60,
+    travel_speed: 150,
+  },
+  x1c_standard_020: {
+    machine: 'bambu_x1c',
+    profile: 'x1c_standard_020.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.2,
+    infill: 15,
+    nozzle: 0.4,
+    print_speed: 200,
+    travel_speed: 500,
+  },
+  x1c_quality_016: {
+    machine: 'bambu_x1c',
+    profile: 'x1c_quality_016.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.16,
+    infill: 15,
+    nozzle: 0.4,
+    print_speed: 200,
+    travel_speed: 500,
+  },
+  x1c_fine_012: {
+    machine: 'bambu_x1c',
+    profile: 'x1c_fine_012.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.12,
+    infill: 20,
+    nozzle: 0.4,
+    print_speed: 160,
+    travel_speed: 500,
+  },
+  x1c_draft_028: {
+    machine: 'bambu_x1c',
+    profile: 'x1c_draft_028.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.28,
+    infill: 15,
+    nozzle: 0.4,
+    print_speed: 250,
+    travel_speed: 500,
+  },
+  x1c_strength_020: {
+    machine: 'bambu_x1c',
+    profile: 'x1c_strength_020.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.2,
+    infill: 50,
+    nozzle: 0.4,
+    print_speed: 180,
+    travel_speed: 500,
+  },
+  x1c_lightning_020: {
+    machine: 'bambu_x1c',
+    profile: 'x1c_lightning_020.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.2,
+    infill: 10,
+    nozzle: 0.4,
+    print_speed: 300,
+    travel_speed: 500,
+  },
+  x1c_ultrafine_008: {
+    machine: 'bambu_x1c',
+    profile: 'x1c_ultrafine_008.ini',
+    printer_profile: 'printer.ini',
+    layer_h: 0.08,
+    infill: 20,
+    nozzle: 0.4,
+    print_speed: 160,
+    travel_speed: 500,
+  },
 };
 
 function normalizePresetKey(key) {
@@ -29,9 +101,21 @@ export function getPresetDefinition(key) {
 }
 
 export function getPresetProfileName(key) {
+  const preset = getPresetDefinition(key);
+  if (preset && preset.profile) {
+    return preset.profile;
+  }
   const normalized = normalizePresetKey(key);
   if (!normalized) return null;
   return `${normalized}.ini`;
+}
+
+export function getPresetPrinterProfile(key) {
+  const preset = getPresetDefinition(key);
+  if (preset && preset.printer_profile) {
+    return preset.printer_profile;
+  }
+  return 'printer.ini';
 }
 
 export function initPresets(selectId) {

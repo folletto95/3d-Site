@@ -1,5 +1,5 @@
 import { initPalette } from './palette.js';
-import { initPresets, getPresetDefinition, getPresetProfileName } from './presets.js';
+import { initPresets, getPresetDefinition, getPresetProfileName, getPresetPrinterProfile } from './presets.js';
 import { state, getSelectedInventoryItem, setSelectedMachine } from './state.js';
 import { resetViewer, showViewer } from './viewer.js';
 import { apiFetch, getApiBase } from './utils/api.js';
@@ -142,6 +142,7 @@ async function handleEstimate() {
   const presetDefinition = getPresetDefinition(presetKey);
   const machineFromPreset = (presetDefinition && presetDefinition.machine) || state.selectedMachine || 'generic';
   const presetProfileName = getPresetProfileName(presetKey);
+  const presetPrinterProfile = getPresetPrinterProfile(presetKey);
   const presetLayer = presetDefinition && typeof presetDefinition.layer_h === 'number' ? presetDefinition.layer_h : undefined;
   const presetInfill = presetDefinition && typeof presetDefinition.infill === 'number' ? presetDefinition.infill : undefined;
   const presetNozzle = presetDefinition && typeof presetDefinition.nozzle === 'number' ? presetDefinition.nozzle : undefined;
@@ -159,6 +160,7 @@ async function handleEstimate() {
     inventory_key: state.selectedKey,
     machine: machineFromPreset,
     preset_print: presetProfileName || undefined,
+    preset_printer: presetPrinterProfile || undefined,
     settings: {
       machine: machineFromPreset,
       layer_h: Number.isFinite(parsedLayer) ? parsedLayer : (presetLayer != null ? presetLayer : 0.2),
@@ -328,8 +330,12 @@ async function requestLegacyEstimate(payload, selectedItem) {
   }
   const presetSelect = document.getElementById('preset');
   const presetValue = payload && payload.preset_print ? payload.preset_print : (presetSelect && presetSelect.value);
+  const printerPresetValue = payload && payload.preset_printer ? payload.preset_printer : null;
   if (presetValue) {
     formData.append('preset_print', presetValue);
+  }
+  if (printerPresetValue) {
+    formData.append('preset_printer', printerPresetValue);
   }
   if (selectedItem.material) {
     formData.append('material', selectedItem.material);
@@ -370,6 +376,9 @@ async function requestLegacyEstimate(payload, selectedItem) {
     }
     if (presetValue) {
       retryForm.append('preset_print', presetValue);
+    }
+    if (printerPresetValue) {
+      retryForm.append('preset_printer', printerPresetValue);
     }
     if (selectedItem.material) {
       retryForm.append('material', selectedItem.material);

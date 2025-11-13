@@ -34,5 +34,39 @@ export function applyPreset(key) {
 function setValue(id, value) {
   if (value == null) return;
   const el = document.getElementById(id);
-  if (el) el.value = value;
+  if (!el) return;
+
+  const stringValue = String(value);
+
+  if (el instanceof HTMLSelectElement) {
+    const hasOption = Array.from(el.options).some((option) => option.value === stringValue);
+    if (!hasOption) {
+      const option = document.createElement('option');
+      option.value = stringValue;
+      option.textContent = formatOptionLabel(id, stringValue);
+      el.appendChild(option);
+    }
+  }
+
+  el.value = stringValue;
+}
+
+function formatOptionLabel(id, value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return value;
+  }
+
+  switch (id) {
+    case 'layer_h':
+    case 'nozzle':
+      return `${num.toFixed(2)} mm`;
+    case 'infill':
+      return `${num}%`;
+    case 'print_speed':
+    case 'travel_speed':
+      return `${num} mm/s`;
+    default:
+      return value;
+  }
 }

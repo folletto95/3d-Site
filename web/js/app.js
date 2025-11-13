@@ -1,6 +1,6 @@
 import { initPalette } from './palette.js';
-import { initPresets } from './presets.js';
-import { state, getSelectedInventoryItem } from './state.js';
+import { initPresets, getPresetDefinition, getPresetProfileName, getPresetPrinterProfile } from './presets.js';
+import { state, getSelectedInventoryItem, setSelectedMachine } from './state.js';
 import { resetViewer, showViewer } from './viewer.js';
 import { apiFetch, getApiBase } from './utils/api.js';
 
@@ -137,24 +137,42 @@ async function handleEstimate() {
     outputElement.innerHTML = 'Calcolo in corso...';
   }
 
+  const presetSelect = document.getElementById('preset');
+  const presetKey = presetSelect && presetSelect.value ? presetSelect.value : '';
+  const presetDefinition = getPresetDefinition(presetKey);
+  const machineFromPreset = (presetDefinition && presetDefinition.machine) || state.selectedMachine || 'generic';
+  const presetProfileName = getPresetProfileName(presetKey);
+  const presetPrinterProfile = getPresetPrinterProfile(presetKey);
+  const presetLayer = presetDefinition && typeof presetDefinition.layer_h === 'number' ? presetDefinition.layer_h : undefined;
+  const presetInfill = presetDefinition && typeof presetDefinition.infill === 'number' ? presetDefinition.infill : undefined;
+  const presetNozzle = presetDefinition && typeof presetDefinition.nozzle === 'number' ? presetDefinition.nozzle : undefined;
+  const presetPrintSpeed = presetDefinition && typeof presetDefinition.print_speed === 'number' ? presetDefinition.print_speed : undefined;
+  const presetTravelSpeed = presetDefinition && typeof presetDefinition.travel_speed === 'number' ? presetDefinition.travel_speed : undefined;
+
+  const parsedLayer = parseFloat(getValue('layer_h', presetLayer != null ? String(presetLayer) : '0.2'));
+  const parsedInfill = parseFloat(getValue('infill', presetInfill != null ? String(presetInfill) : '15'));
+  const parsedNozzle = parseFloat(getValue('nozzle', presetNozzle != null ? String(presetNozzle) : '0.4'));
+  const parsedPrintSpeed = parseFloat(getValue('print_speed', presetPrintSpeed != null ? String(presetPrintSpeed) : '60'));
+  const parsedTravelSpeed = parseFloat(getValue('travel_speed', presetTravelSpeed != null ? String(presetTravelSpeed) : '150'));
+
   const payload = {
     viewer_url: state.currentViewerUrl,
     inventory_key: state.selectedKey,
-    machine: state.selectedMachine,
-    preset_print: undefined,
+    machine: machineFromPreset,
+    preset_print: presetProfileName || undefined,
+    preset_printer: presetPrinterProfile || undefined,
     settings: {
-      machine: state.selectedMachine,
-      layer_h: parseFloat(getValue('layer_h', '0.2')),
-      infill: parseFloat(getValue('infill', '15')),
-      nozzle: parseFloat(getValue('nozzle', '0.4')),
-      print_speed: parseFloat(getValue('print_speed', '60')),
-      travel_speed: parseFloat(getValue('travel_speed', '150')),
+      machine: machineFromPreset,
+      layer_h: Number.isFinite(parsedLayer) ? parsedLayer : (presetLayer != null ? presetLayer : 0.2),
+      infill: Number.isFinite(parsedInfill) ? parsedInfill : (presetInfill != null ? presetInfill : 15),
+      nozzle: Number.isFinite(parsedNozzle) ? parsedNozzle : (presetNozzle != null ? presetNozzle : 0.4),
+      print_speed: Number.isFinite(parsedPrintSpeed) ? parsedPrintSpeed : (presetPrintSpeed != null ? presetPrintSpeed : 60),
+      travel_speed: Number.isFinite(parsedTravelSpeed) ? parsedTravelSpeed : (presetTravelSpeed != null ? presetTravelSpeed : 150),
     },
   };
 
-  const presetSelect = document.getElementById('preset');
-  if (presetSelect && presetSelect.value) {
-    payload.preset_print = presetSelect.value;
+  if (presetDefinition && presetDefinition.machine && machineFromPreset !== state.selectedMachine) {
+    setSelectedMachine(presetDefinition.machine);
   }
 
   try {
@@ -312,8 +330,12 @@ async function requestLegacyEstimate(payload, selectedItem) {
   }
   const presetSelect = document.getElementById('preset');
   const presetValue = payload && payload.preset_print ? payload.preset_print : (presetSelect && presetSelect.value);
+  const printerPresetValue = payload && payload.preset_printer ? payload.preset_printer : null;
   if (presetValue) {
     formData.append('preset_print', presetValue);
+  }
+  if (printerPresetValue) {
+    formData.append('preset_printer', printerPresetValue);
   }
   if (selectedItem.material) {
     formData.append('material', selectedItem.material);
@@ -354,6 +376,9 @@ async function requestLegacyEstimate(payload, selectedItem) {
     }
     if (presetValue) {
       retryForm.append('preset_print', presetValue);
+    }
+    if (printerPresetValue) {
+      retryForm.append('preset_printer', printerPresetValue);
     }
     if (selectedItem.material) {
       retryForm.append('material', selectedItem.material);

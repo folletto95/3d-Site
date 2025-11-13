@@ -309,7 +309,7 @@ def _profile_candidates(kind: str, preset: str) -> list[Path]:
     return candidates
 
 
-def _resolve_profile_path(kind: str, preset: str | None) -> Path:
+def _resolve_profile_path(kind: str, preset: str | None) -> tuple[Path, bool]:
     default_map = {
         "print": DEFAULT_PRINT_PROFILE,
         "filament": DEFAULT_FILAMENT_PROFILE,
@@ -317,17 +317,17 @@ def _resolve_profile_path(kind: str, preset: str | None) -> Path:
     }
     default = default_map.get(kind, DEFAULT_PRINT_PROFILE)
     if not preset:
-        return default
+        return default, False
     text = str(preset).strip()
     if not text:
-        return default
+        return default, False
     for candidate in _profile_candidates(kind, text):
         try:
             if candidate.is_file():
-                return candidate.resolve()
+                return candidate.resolve(), True
         except Exception:
             continue
-    return default
+    return default, False
 
 
 def _slug(value: str | None) -> str:
@@ -990,9 +990,18 @@ def _build_prusaslicer_args(
     preset_filament: str | None,
     preset_printer: str | None,
 ) -> list[str]:
-    printer_profile = _resolve_profile_path("printer", preset_printer)
-    filament_profile = _resolve_profile_path("filament", preset_filament)
-    print_profile = _resolve_profile_path("print", preset_print)
+    printer_profile, printer_found = _resolve_profile_path("printer", preset_printer)
+    filament_profile, filament_found = _resolve_profile_path("filament", preset_filament)
+    print_profile, print_found = _resolve_profile_path("print", preset_print)
+
+    if preset_print and str(preset_print).strip() and not print_found:
+        raise HTTPException(400, f"Profilo di stampa '{preset_print}' non trovato.")
+
+    if preset_printer and str(preset_printer).strip() and not printer_found:
+        _LOG.warning("Preset stampante '%s' non trovato, uso profilo di default %s", preset_printer, printer_profile)
+
+    if preset_filament and str(preset_filament).strip() and not filament_found:
+        _LOG.warning("Preset filamento '%s' non trovato, uso profilo di default %s", preset_filament, filament_profile)
 
     args = list(base_cmd) + [
         "--no-gui",
@@ -1007,6 +1016,8 @@ def _build_prusaslicer_args(
         output_path,
     ]
     args.append(input_path)
+
+    return _sanitize_prusaslicer_args(args)
 
     return _sanitize_prusaslicer_args(args)
 

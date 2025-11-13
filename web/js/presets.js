@@ -1,5 +1,6 @@
 import { state, setSelectedMachine } from './state.js';
 
+const DEFAULT_PRESET_KEY = 'x1c_standard_020';
 const PRESETS = {
   '': { machine: 'generic', layer_h: 0.2, infill: 15, nozzle: 0.4, print_speed: 60, travel_speed: 150 },
   x1c_standard_020: { machine: 'bambu_x1c', layer_h: 0.2, infill: 15, nozzle: 0.4, print_speed: 200, travel_speed: 500 },
@@ -11,18 +12,40 @@ const PRESETS = {
   x1c_ultrafine_008: { machine: 'bambu_x1c', layer_h: 0.08, infill: 20, nozzle: 0.4, print_speed: 160, travel_speed: 500 },
 };
 
+function normalizePresetKey(key) {
+  if (!key) return '';
+  const text = String(key).trim();
+  if (!text) return '';
+  const lower = text.toLowerCase();
+  if (lower.endsWith('.ini')) {
+    return lower.slice(0, -4);
+  }
+  return lower;
+}
+
+export function getPresetDefinition(key) {
+  const normalized = normalizePresetKey(key);
+  return PRESETS[normalized] || null;
+}
+
+export function getPresetProfileName(key) {
+  const normalized = normalizePresetKey(key);
+  if (!normalized) return null;
+  return `${normalized}.ini`;
+}
+
 export function initPresets(selectId) {
   const select = document.getElementById(selectId);
   if (!select) return;
   select.addEventListener('change', () => applyPreset(select.value));
   if (!state.selectedMachine || state.selectedMachine === 'generic') {
-    select.value = 'x1c_standard_020';
-    applyPreset('x1c_standard_020');
+    select.value = DEFAULT_PRESET_KEY;
+    applyPreset(DEFAULT_PRESET_KEY);
   }
 }
 
 export function applyPreset(key) {
-  const preset = PRESETS[key] || PRESETS[''];
+  const preset = getPresetDefinition(key) || PRESETS[''];
   setSelectedMachine(preset.machine);
   setValue('layer_h', preset.layer_h != null ? preset.layer_h.toFixed(2) : undefined);
   setValue('infill', preset.infill != null ? String(preset.infill) : undefined);

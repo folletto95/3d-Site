@@ -1004,6 +1004,7 @@ def _build_prusaslicer_args(
         _LOG.warning("Preset filamento '%s' non trovato, uso profilo di default %s", preset_filament, filament_profile)
 
     args = list(base_cmd) + [
+        "--no-gui",
         "--export-gcode",
         "--load",
         str(printer_profile),
@@ -1013,8 +1014,10 @@ def _build_prusaslicer_args(
         str(print_profile),
         "--output",
         output_path,
-        input_path,
     ]
+    args.append(input_path)
+
+    return _sanitize_prusaslicer_args(args)
 
     return _sanitize_prusaslicer_args(args)
 

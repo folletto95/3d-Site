@@ -982,26 +982,73 @@ def _resolve_prusaslicer_cmd() -> list[str]:
     raise FileNotFoundError
 
 
-def _build_prusaslicer_args(
-    base_cmd: list[str],
-    input_path: str,
-    output_path: str,
+def _clean_requested_preset(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _resolve_profiles(
     preset_print: str | None,
     preset_filament: str | None,
     preset_printer: str | None,
-) -> list[str]:
+) -> dict[str, dict[str, object]]:
+    profiles = {
+        "print": {},
+        "filament": {},
+        "printer": {},
+    }
+
     printer_profile, printer_found = _resolve_profile_path("printer", preset_printer)
     filament_profile, filament_found = _resolve_profile_path("filament", preset_filament)
     print_profile, print_found = _resolve_profile_path("print", preset_print)
 
-    if preset_print and str(preset_print).strip() and not print_found:
-        raise HTTPException(400, f"Profilo di stampa '{preset_print}' non trovato.")
+    profiles["printer"] = {
+        "requested": _clean_requested_preset(preset_printer),
+        "path": printer_profile,
+        "found": printer_found,
+    }
+    profiles["filament"] = {
+        "requested": _clean_requested_preset(preset_filament),
+        "path": filament_profile,
+        "found": filament_found,
+    }
+    profiles["print"] = {
+        "requested": _clean_requested_preset(preset_print),
+        "path": print_profile,
+        "found": print_found,
+    }
 
-    if preset_printer and str(preset_printer).strip() and not printer_found:
-        _LOG.warning("Preset stampante '%s' non trovato, uso profilo di default %s", preset_printer, printer_profile)
+    if profiles["print"]["requested"] and not print_found:
+        raise HTTPException(400, f"Profilo di stampa '{profiles['print']['requested']}' non trovato.")
 
-    if preset_filament and str(preset_filament).strip() and not filament_found:
-        _LOG.warning("Preset filamento '%s' non trovato, uso profilo di default %s", preset_filament, filament_profile)
+    if profiles["printer"]["requested"] and not printer_found:
+        _LOG.warning(
+            "Preset stampante '%s' non trovato, uso profilo di default %s",
+            profiles["printer"]["requested"],
+            printer_profile,
+        )
+
+    if profiles["filament"]["requested"] and not filament_found:
+        _LOG.warning(
+            "Preset filamento '%s' non trovato, uso profilo di default %s",
+            profiles["filament"]["requested"],
+            filament_profile,
+        )
+
+    return profiles
+
+
+def _build_prusaslicer_args(
+    base_cmd: list[str],
+    input_path: str,
+    output_path: str,
+    profiles: dict[str, dict[str, object]],
+) -> list[str]:
+    printer_profile = profiles["printer"]["path"]
+    filament_profile = profiles["filament"]["path"]
+    print_profile = profiles["print"]["path"]
 
     args = list(base_cmd) + [
         "--no-gui",
@@ -1016,8 +1063,6 @@ def _build_prusaslicer_args(
         output_path,
     ]
     args.append(input_path)
-
-    return _sanitize_prusaslicer_args(args)
 
     return _sanitize_prusaslicer_args(args)
 
@@ -1042,9 +1087,7 @@ def _praslicer_env() -> dict[str, str]:
 def _invoke_prusaslicer(
     input_path: str,
     output_path: str,
-    preset_print: str | None,
-    preset_filament: str | None,
-    preset_printer: str | None,
+    profiles: dict[str, dict[str, object]],
 ) -> None:
     try:
         base_cmd = _resolve_prusaslicer_cmd()
@@ -1054,9 +1097,7 @@ def _invoke_prusaslicer(
         base_cmd,
         input_path,
         output_path,
-        preset_print,
-        preset_filament,
-        preset_printer,
+        profiles,
     )
 
     try:
@@ -1082,21 +1123,22 @@ def _invoke_prusaslicer(
         msg = res.stderr or res.stdout or "Errore sconosciuto"
         raise HTTPException(500, f"Errore PrusaSlicer: {msg[:600]}")
 
-def _run_prusaslicer(model_path: str, preset_print: str | None, preset_filament: str | None, preset_printer: str | None) -> str:
+def _run_prusaslicer(
+    model_path: str,
+    profiles: dict[str, dict[str, object]],
+) -> str:
     with tempfile.TemporaryDirectory() as td:
         out_path = _build_gcode_output_path(
             td,
             model_path,
-            preset_print,
-            preset_filament,
-            preset_printer,
+            profiles["print"].get("requested"),
+            profiles["filament"].get("requested"),
+            profiles["printer"].get("requested"),
         )
         _invoke_prusaslicer(
             model_path,
             out_path,
-            preset_print,
-            preset_filament,
-            preset_printer,
+            profiles,
         )
 
         if not os.path.exists(out_path):
@@ -1147,8 +1189,10 @@ async def api_estimate(
         if not model_path:
             raise HTTPException(400, "Nessun modello fornito. Passa file oppure viewer_url=/ui/uploads/<file>.")
 
+    profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
+
     # esegui slicing per ottenere stima
-    gcode = _run_prusaslicer(model_path, preset_print, preset_filament, preset_printer)
+    gcode = _run_prusaslicer(model_path, profiles)
 
     # parse G-code
     filament_g = None
@@ -1208,6 +1252,28 @@ async def api_estimate(
         except Exception:
             pass
 
+    def _profile_summary(kind: str) -> dict[str, object]:
+        info = profiles[kind]
+        path = info["path"]
+        filename = ""
+        try:
+            filename = Path(path).name
+        except Exception:
+            filename = str(path)
+        return {
+            "requested": info.get("requested"),
+            "path": str(path),
+            "filename": filename,
+            "found": bool(info.get("found")),
+            "is_default": not bool(info.get("found")),
+        }
+
+    presets_used = {
+        "print": _profile_summary("print"),
+        "filament": _profile_summary("filament"),
+        "printer": _profile_summary("printer"),
+    }
+
     return _no_cache({
         "filament_g": filament_g,
         "filament_mm": filament_mm,
@@ -1218,6 +1284,11 @@ async def api_estimate(
         "cost_machine": mach_cost,
         "cost_total": total_cost,
         "currency": CURRENCY,
+        "preset_print_used": presets_used["print"]["filename"],
+        "preset_printer_used": presets_used["printer"]["filename"],
+        "preset_filament_used": presets_used["filament"]["filename"],
+        "preset_print_is_default": presets_used["print"]["is_default"],
+        "presets_used": presets_used,
     })
 
 # ---------- Slice (esporta gcode) ----------
@@ -1233,12 +1304,11 @@ async def slice_model(
         with open(in_path, "wb") as f:
             f.write(await model.read())
         out_path = os.path.join(td, "out.gcode")
+        profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
         _invoke_prusaslicer(
             in_path,
             out_path,
-            preset_print,
-            preset_filament,
-            preset_printer,
+            profiles,
         )
 
         if not os.path.exists(out_path):

@@ -185,6 +185,8 @@ async function handleEstimate() {
       const costFilament = formatCurrency(data.cost_filament, currency);
       const costMachine = formatCurrency(data.cost_machine, currency);
       const totalCost = formatCurrency(data.total, currency);
+      const presetUsed = data && data.preset_print_used ? String(data.preset_print_used) : null;
+      const presetDefault = Boolean(data && data.preset_print_is_default);
       let html = `
         Tempo: <b>${minutes != null ? `${minutes} min` : 'n/d'}</b> — Filamento: <b>${filament != null ? `${filament} g` : 'n/d'}</b><br>
         Costo filamento: <b>${costFilament}</b> — Costo macchina: <b>${costMachine}</b><br>
@@ -192,6 +194,10 @@ async function handleEstimate() {
       `;
       if (data.gcode_url) {
         html += ` — <a href="${data.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>`;
+      }
+      if (presetUsed) {
+        const presetLabel = presetDefault ? `${presetUsed} (default)` : presetUsed;
+        html += `<br>Preset Prusa: <b>${escapeHtml(presetLabel)}</b>`;
       }
       outputElement.innerHTML = html;
     }
@@ -228,14 +234,14 @@ async function parseJson(response) {
 }
 
 async function requestEstimate(payload, selectedItem) {
-  const data = await requestModernEstimate(payload);
+  const data = await requestModernEstimate(payload, selectedItem);
   if (data != null) {
     return data;
   }
   return requestLegacyEstimate(payload, selectedItem);
 }
 
-async function requestModernEstimate(payload) {
+async function requestModernEstimate(payload, selectedItem) {
   const attempted = new Set();
   const paths = buildModernEstimatePaths();
   let last404 = null;
@@ -263,7 +269,7 @@ async function requestModernEstimate(payload) {
       if (!response.ok) {
         throw createHttpError(data.detail || 'Errore stima', response.status, path, data.detail);
       }
-      return data;
+      return normalizeEstimateResponse(data, selectedItem);
     } catch (error) {
       if (error && error.status === 404) {
         last404 = error;
@@ -416,23 +422,154 @@ async function handleLegacyResponse(response, selectedItem) {
     }
     throw new Error(detail || 'Errore stima');
   }
+  return normalizeEstimateResponse(data, selectedItem);
+}
 
-  const costFilament = toNumber(data.cost_material ?? data.cost_filament);
-  const costMachine = toNumber(data.cost_machine);
-  let total = toNumber(data.cost_total ?? data.total);
+function normalizeEstimateResponse(data, selectedItem) {
+  const source = (data && typeof data === 'object') ? data : {};
+  const costFilament = toNumber(source.cost_material ?? source.cost_filament);
+  const costMachine = toNumber(source.cost_machine);
+  let total = toNumber(source.cost_total ?? source.total);
   if (total == null && costFilament != null && costMachine != null) {
     total = costFilament + costMachine;
   }
 
+  const presetsUsed = normalizePresetsUsed(source.presets_used);
+  const presetPrintUsed = extractPresetUsed(source, 'print', presetsUsed);
+  const presetPrinterUsed = extractPresetUsed(source, 'printer', presetsUsed);
+  const presetFilamentUsed = extractPresetUsed(source, 'filament', presetsUsed);
+  const presetPrintDefault = determinePresetDefault(source, presetsUsed, 'print');
+
   return {
-    time_s: toNumber(data.time_s),
-    filament_g: toNumber(data.filament_g),
+    time_s: toNumber(source.time_s),
+    filament_g: toNumber(source.filament_g),
     cost_filament: costFilament,
     cost_machine: costMachine,
     total,
-    currency: data.currency || selectedItem.currency || 'EUR',
-    gcode_url: data.gcode_url || data.download_url || null,
+    currency: source.currency || (selectedItem && selectedItem.currency) || 'EUR',
+    gcode_url: source.gcode_url || source.download_url || null,
+    preset_print_used: presetPrintUsed,
+    preset_printer_used: presetPrinterUsed,
+    preset_filament_used: presetFilamentUsed,
+    preset_print_is_default: presetPrintDefault,
+    presets_used: presetsUsed,
   };
+}
+
+function normalizePresetsUsed(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const kinds = ['print', 'filament', 'printer'];
+  const normalized = {};
+  for (const kind of kinds) {
+    const value = raw[kind];
+    if (!value || typeof value !== 'object') {
+      continue;
+    }
+    const path = safeString(value.path);
+    const filename = safeString(value.filename) || (path ? path.split('/').pop() : null);
+    const foundFlag = value.found;
+    const found = foundFlag === true || (typeof foundFlag === 'string' && foundFlag.trim().toLowerCase() === 'true');
+    const isDefaultFlag = value.is_default;
+    const isDefault = (
+      isDefaultFlag === true ||
+      (typeof isDefaultFlag === 'string' && isDefaultFlag.trim().toLowerCase() === 'true') ||
+      (foundFlag === false || (typeof foundFlag === 'string' && foundFlag.trim().toLowerCase() === 'false'))
+    );
+    normalized[kind] = {
+      requested: safeString(value.requested ?? value.selected ?? value.desired),
+      path,
+      filename,
+      found,
+      is_default: isDefault,
+    };
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function extractPresetUsed(data, kind, presetsUsed) {
+  if (presetsUsed && presetsUsed[kind]) {
+    const entry = presetsUsed[kind];
+    if (entry.filename) {
+      return entry.filename;
+    }
+    if (entry.path) {
+      return entry.path;
+    }
+    if (entry.requested) {
+      return entry.requested;
+    }
+  }
+  const directKey = safeString(data[`preset_${kind}_used`]);
+  if (directKey) {
+    return directKey;
+  }
+  const fallback = safeString(data[`preset_${kind}`]);
+  return fallback;
+}
+
+function determinePresetDefault(data, presetsUsed, kind) {
+  if (presetsUsed && presetsUsed[kind]) {
+    const entry = presetsUsed[kind];
+    if (entry.is_default === true) {
+      return true;
+    }
+    if (entry.found === false) {
+      return true;
+    }
+    return false;
+  }
+  if (data && Object.prototype.hasOwnProperty.call(data, `preset_${kind}_is_default`)) {
+    const flag = data[`preset_${kind}_is_default`];
+    if (flag === true) {
+      return true;
+    }
+    if (flag === false) {
+      return false;
+    }
+    if (typeof flag === 'string') {
+      const low = flag.trim().toLowerCase();
+      if (low === 'true' || low === '1' || low === 'yes') {
+        return true;
+      }
+      if (low === 'false' || low === '0' || low === 'no') {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
+function safeString(value) {
+  if (value == null) {
+    return null;
+  }
+  const text = String(value);
+  const trimmed = text.trim();
+  return trimmed ? trimmed : null;
+}
+
+function escapeHtml(value) {
+  if (value == null) {
+    return '';
+  }
+  return String(value).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case '\'':
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
 }
 
 function convertLegacyViewerUrl(url) {

@@ -121,21 +121,25 @@ export function getPresetPrinterProfile(key) {
 export function initPresets(selectId) {
   const select = document.getElementById(selectId);
   if (!select) return;
-  select.addEventListener('change', () => applyPreset(select.value));
+  select.addEventListener('change', () => applyPreset(select.value, { reason: 'user' }));
   if (!state.selectedMachine || state.selectedMachine === 'generic') {
     select.value = DEFAULT_PRESET_KEY;
-    applyPreset(DEFAULT_PRESET_KEY);
+    applyPreset(DEFAULT_PRESET_KEY, { reason: 'init' });
+  } else {
+    applyPreset(select.value, { reason: 'init' });
   }
 }
 
-export function applyPreset(key) {
-  const preset = getPresetDefinition(key) || PRESETS[''];
+export function applyPreset(key, options = {}) {
+  const normalizedKey = normalizePresetKey(key);
+  const preset = getPresetDefinition(normalizedKey) || PRESETS[''];
   setSelectedMachine(preset.machine);
   setValue('layer_h', preset.layer_h != null ? preset.layer_h.toFixed(2) : undefined);
   setValue('infill', preset.infill != null ? String(preset.infill) : undefined);
   setValue('nozzle', preset.nozzle != null ? preset.nozzle.toFixed(1) : undefined);
   setValue('print_speed', preset.print_speed != null ? String(preset.print_speed) : undefined);
   setValue('travel_speed', preset.travel_speed != null ? String(preset.travel_speed) : undefined);
+  dispatchPresetChanged(normalizedKey, preset, options);
 }
 
 function setValue(id, value) {
@@ -156,6 +160,20 @@ function setValue(id, value) {
   }
 
   el.value = stringValue;
+}
+
+function dispatchPresetChanged(key, preset, options) {
+  try {
+    const detail = {
+      key,
+      machine: preset && preset.machine ? preset.machine : null,
+      profile: preset && preset.profile ? preset.profile : null,
+      reason: options && options.reason ? options.reason : null,
+    };
+    document.dispatchEvent(new CustomEvent('preset:changed', { detail }));
+  } catch (error) {
+    console.warn('Impossibile notificare il cambio preset', error);
+  }
 }
 
 function formatOptionLabel(id, value) {

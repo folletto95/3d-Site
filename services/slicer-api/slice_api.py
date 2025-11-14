@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Body
 from fastapi.responses import PlainTextResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os, tempfile, subprocess, re, colorsys, json, threading, uuid, math, shutil, shlex, logging
@@ -204,6 +204,15 @@ def _normalize_hex(h: str | None) -> str | None:
         r, g, b = s[1], s[2], s[3]
         s = f"#{r}{r}{g}{g}{b}{b}"
     return s.upper()[:7]
+
+
+def _hex_norm(value: str | None) -> str:
+    if not value:
+        return "#777777"
+    text = str(value).strip()
+    if not text.startswith("#"):
+        text = f"#{text}"
+    return text.upper()
 
 
 def _raw_color_hex(spool: dict, filament: dict) -> str | None:
@@ -564,8 +573,7 @@ def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
         return None
 
 # ---------- Inventory ----------
-@app.get("/inventory")
-async def inventory():
+async def _fetch_inventory_items() -> list[dict]:
     verify = not (os.getenv("SPOOLMAN_SKIP_TLS_VERIFY", "").lower() in ("1", "true", "yes"))
     token = os.getenv("SPOOLMAN_TOKEN")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -670,7 +678,61 @@ async def inventory():
     out = list(merged.values())
     out.sort(key=lambda x: (x["material"].lower(), x["name"].lower(), x["hex"]))
     _flush_colors_map_if_dirty()
-    return _no_cache({"items": out, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
+    return out
+
+
+def _inventory_key_for_index(item: dict, index: int) -> str:
+    raw_key = item.get("key")
+    if raw_key not in (None, ""):
+        return str(raw_key)
+    color = _hex_norm(item.get("color_hex") or item.get("hex") or "#777777")
+    material = str(item.get("material") or "mat")
+    return f"{material}_{color}_{index}"
+
+
+async def _resolve_inventory_context(key: str | None) -> dict:
+    if not key:
+        return {}
+    try:
+        items = await _fetch_inventory_items()
+    except HTTPException:
+        raise
+    except Exception:
+        return {}
+    for idx, item in enumerate(items):
+        if _inventory_key_for_index(item, idx) == key:
+            return item
+    return {}
+
+
+def _normalize_viewer_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    text = str(url).strip()
+    if not text:
+        return None
+    if text.startswith("/ui/uploads/"):
+        return text
+    if text.startswith("/files/"):
+        name = text.split("/")[-1].split("?")[0]
+        if name:
+            return f"/ui/uploads/{name}"
+    return text
+
+
+def _to_float(value, default: float | None = None) -> float | None:
+    if value in (None, ""):
+        return default
+    try:
+        return float(str(value).replace(",", "."))
+    except Exception:
+        return default
+
+
+@app.get("/inventory")
+async def inventory():
+    items = await _fetch_inventory_items()
+    return _no_cache({"items": items, "hourly_rate": HOURLY_RATE, "currency": CURRENCY})
 
 @app.get("/api/spools")
 async def inventory_legacy():
@@ -930,6 +992,27 @@ def _extract_settings_id_from_profile(path: Path, key: str) -> str | None:
     return None
 
 
+def _profile_cli_name(kind: str, path: Path) -> str | None:
+    key_order = {
+        "print": ["print_profile", "print_settings_id", "name"],
+        "filament": ["filament_profile", "name", "filament_settings_id"],
+        "printer": ["printer_profile", "name", "printer_settings_id"],
+    }
+    tried: set[str] = set()
+    for key in key_order.get(kind, []):
+        if key in tried:
+            continue
+        tried.add(key)
+        value = _extract_settings_id_from_profile(path, key)
+        if value:
+            return value
+    if "name" not in tried:
+        value = _extract_settings_id_from_profile(path, "name")
+        if value:
+            return value
+    return None
+
+
 def _normalize_settings_id(value: str | None) -> str:
     if not value:
         return ""
@@ -1110,6 +1193,19 @@ def _build_prusaslicer_args(
         "--output",
         output_path,
     ]
+
+    printer_name = _profile_cli_name("printer", printer_profile)
+    if printer_name:
+        args.extend(["--printer-profile", printer_name])
+
+    filament_name = _profile_cli_name("filament", filament_profile)
+    if filament_name:
+        args.extend(["--material-profile", filament_name])
+
+    print_name = _profile_cli_name("print", print_profile)
+    if print_name:
+        args.extend(["--print-profile", print_name])
+
     args.append(input_path)
 
     return _sanitize_prusaslicer_args(args)
@@ -1206,43 +1302,18 @@ def _resolve_model_path(viewer_url: str | None) -> str | None:
     path = os.path.join(WEB_DIR, "uploads", file_name)
     return path if os.path.isfile(path) else None
 
-@app.post("/api/estimate")
-async def api_estimate(
-    model: UploadFile | None = File(default=None),
-    viewer_url: str | None = Form(default=None),
-    model_url: str | None = Form(default=None),  # alias
-    material: str | None = Form(default=None),
-    diameter: str | None = Form(default=None),
-    price_per_kg: float | None = Form(default=None),
-    hourly_rate: float | None = Form(default=None),
-    preset_print: str | None = Form(default=None),
-    preset_filament: str | None = Form(default=None),
-    preset_printer: str | None = Form(default=None),
-):
-    # risolvi modello: upload oppure modello già caricato nel viewer
-    tmp_path = None
-    model_path = None
 
-    if model is not None:
-        ext = os.path.splitext(model.filename or "model")[1].lower()
-        if ext not in ALLOWED_EXTS:
-            raise HTTPException(400, f"Estensione non supportata: {ext}")
-        td = tempfile.mkdtemp(prefix="model-")
-        tmp_path = os.path.join(td, os.path.basename(model.filename or "model") or "model")  # nosec
-        with open(tmp_path, "wb") as f:
-            f.write(await model.read())
-        model_path = tmp_path
-    else:
-        model_path = _resolve_model_path(viewer_url) or _resolve_model_path(model_url)
-        if not model_path:
-            raise HTTPException(400, "Nessun modello fornito. Passa file oppure viewer_url=/ui/uploads/<file>.")
-
-    profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
-
-    # esegui slicing per ottenere stima
+def _estimate_print_job(
+    model_path: str,
+    profiles: dict[str, dict[str, object]],
+    *,
+    material: str | None,
+    diameter: str | float | None,
+    price_per_kg: float | None,
+    rate: float | None,
+) -> dict:
     gcode = _run_prusaslicer(model_path, profiles)
 
-    # parse G-code
     preset_ids = _parse_preset_ids_from_gcode(gcode)
     filament_g = None
     filament_mm = None
@@ -1260,46 +1331,30 @@ async def api_estimate(
     if mt:
         time_s = _parse_time_to_seconds(mt.group(1))
 
-    # se mancano i grammi ma abbiamo la lunghezza -> converto io
     if filament_g is None and filament_mm is not None:
-        try:
-            diam = float(str(diameter or "1.75").replace(",", "."))
-        except Exception:
-            diam = 1.75
-        filament_g = _grams_from_mm(filament_mm, diam, material)
+        diam_val = _to_float(diameter, 1.75) or 1.75
+        filament_g = _grams_from_mm(filament_mm, diam_val, material)
 
     if filament_mm is None or filament_g is None:
         fallback_mm = _estimate_filament_length_from_gcode_text(gcode)
         if fallback_mm > 0 and filament_mm is None:
             filament_mm = fallback_mm
         if filament_g is None and filament_mm is not None:
-            try:
-                diam = float(str(diameter or "1.75").replace(",", "."))
-            except Exception:
-                diam = 1.75
-            filament_g = _grams_from_mm(filament_mm, diam, material)
+            diam_val = _to_float(diameter, 1.75) or 1.75
+            filament_g = _grams_from_mm(filament_mm, diam_val, material)
 
-    # costi
-    rate = hourly_rate if hourly_rate is not None else HOURLY_RATE
+    eff_rate = rate if rate is not None else HOURLY_RATE
     mat_cost = None
     if price_per_kg is not None and filament_g is not None:
         mat_cost = price_per_kg * (filament_g / 1000.0)
 
     mach_cost = None
-    if rate is not None and time_s is not None:
-        mach_cost = rate * (time_s / 3600.0)
+    if eff_rate is not None and time_s is not None:
+        mach_cost = eff_rate * (time_s / 3600.0)
 
     total_cost = None
     if mat_cost is not None and mach_cost is not None:
         total_cost = mat_cost + mach_cost
-
-    # cleanup tmp
-    if tmp_path:
-        try:
-            os.remove(tmp_path)
-            os.rmdir(os.path.dirname(tmp_path))
-        except Exception:
-            pass
 
     def _profile_summary(kind: str) -> dict[str, object]:
         info = profiles[kind]
@@ -1357,12 +1412,13 @@ async def api_estimate(
             presets_used["print"].get("reported_id"),
         )
 
-    return _no_cache({
+    return {
+        "gcode": gcode,
         "filament_g": filament_g,
         "filament_mm": filament_mm,
         "time_s": time_s,
         "price_per_kg": price_per_kg,
-        "hourly_rate": rate,
+        "hourly_rate": eff_rate,
         "cost_material": mat_cost,
         "cost_machine": mach_cost,
         "cost_total": total_cost,
@@ -1377,7 +1433,152 @@ async def api_estimate(
         "preset_printer_reported_id": presets_used["printer"].get("reported_id"),
         "preset_filament_reported_id": presets_used["filament"].get("reported_id"),
         "presets_used": presets_used,
-    })
+    }
+
+@app.post("/api/estimate")
+async def api_estimate(
+    model: UploadFile | None = File(default=None),
+    viewer_url: str | None = Form(default=None),
+    model_url: str | None = Form(default=None),  # alias
+    material: str | None = Form(default=None),
+    diameter: str | None = Form(default=None),
+    price_per_kg: float | None = Form(default=None),
+    hourly_rate: float | None = Form(default=None),
+    preset_print: str | None = Form(default=None),
+    preset_filament: str | None = Form(default=None),
+    preset_printer: str | None = Form(default=None),
+):
+    # risolvi modello: upload oppure modello già caricato nel viewer
+    tmp_path = None
+    model_path = None
+
+    if model is not None:
+        ext = os.path.splitext(model.filename or "model")[1].lower()
+        if ext not in ALLOWED_EXTS:
+            raise HTTPException(400, f"Estensione non supportata: {ext}")
+        td = tempfile.mkdtemp(prefix="model-")
+        tmp_path = os.path.join(td, os.path.basename(model.filename or "model") or "model")  # nosec
+        with open(tmp_path, "wb") as f:
+            f.write(await model.read())
+        model_path = tmp_path
+    else:
+        model_path = _resolve_model_path(viewer_url) or _resolve_model_path(model_url)
+        if not model_path:
+            raise HTTPException(400, "Nessun modello fornito. Passa file oppure viewer_url=/ui/uploads/<file>.")
+
+    profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
+
+    try:
+        result = _estimate_print_job(
+            model_path,
+            profiles,
+            material=material,
+            diameter=diameter,
+            price_per_kg=price_per_kg,
+            rate=hourly_rate,
+        )
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+                os.rmdir(os.path.dirname(tmp_path))
+            except Exception:
+                pass
+
+    payload = dict(result)
+    payload.pop("gcode", None)
+    return _no_cache(payload)
+
+
+async def _modern_estimate(payload: dict) -> JSONResponse:
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Payload JSON non valido")
+
+    viewer_url = _normalize_viewer_url(payload.get("viewer_url"))
+    model_path = _resolve_model_path(viewer_url)
+    if not model_path:
+        raise HTTPException(400, "viewer_url non valido o file inesistente")
+
+    inventory_key = payload.get("inventory_key")
+    inventory_context = await _resolve_inventory_context(str(inventory_key)) if inventory_key else {}
+
+    material = payload.get("material") or inventory_context.get("material")
+    diameter = payload.get("diameter") or inventory_context.get("diameter")
+
+    price_per_kg = payload.get("price_per_kg")
+    if price_per_kg is None:
+        price_per_kg = inventory_context.get("price_per_kg")
+    price_per_kg = _to_float(price_per_kg, None)
+
+    hourly_rate = payload.get("hourly_rate")
+    hourly_rate = _to_float(hourly_rate, None)
+
+    preset_print = payload.get("preset_print")
+    preset_filament = payload.get("preset_filament")
+    preset_printer = payload.get("preset_printer")
+
+    settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+    if not preset_print and settings:
+        preset_print = settings.get("profile") or settings.get("preset_print")
+    if not preset_printer and settings:
+        preset_printer = settings.get("printer_profile") or settings.get("preset_printer")
+
+    profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
+    result = _estimate_print_job(
+        model_path,
+        profiles,
+        material=material,
+        diameter=diameter,
+        price_per_kg=price_per_kg,
+        rate=hourly_rate,
+    )
+
+    response = dict(result)
+    response.pop("gcode", None)
+
+    debug_payload: dict[str, object] = {}
+    if settings:
+        debug_payload["settings"] = settings
+    if inventory_context:
+        debug_payload["inventory"] = inventory_context
+    if debug_payload:
+        response["debug"] = debug_payload
+
+    return _no_cache(response)
+
+
+@app.post("/slice/estimate")
+async def modern_slice_estimate(payload: dict = Body(...)):
+    return await _modern_estimate(payload)
+
+
+@app.post("/api/slice/estimate")
+async def modern_slice_estimate_prefixed(payload: dict = Body(...)):
+    return await _modern_estimate(payload)
+
+
+@app.get("/slice/estimate")
+@app.get("/api/slice/estimate")
+async def modern_slice_estimate_info():
+    return _no_cache(
+        {
+            "detail": "Invia un JSON a POST /slice/estimate per ottenere la stima.",
+            "method": "POST",
+            "payload": {
+                "viewer_url": "/ui/uploads/<file>",
+                "inventory_key": "<chiave_materiale>",
+                "preset_print": "x1c_standard_020.ini",
+                "preset_printer": "printer.ini",
+                "settings": {
+                    "layer_h": 0.2,
+                    "infill": 15,
+                    "nozzle": 0.4,
+                    "print_speed": 60,
+                    "travel_speed": 150,
+                },
+            },
+        }
+    )
 
 # ---------- Slice (esporta gcode) ----------
 @app.post("/api/slice", response_class=PlainTextResponse)

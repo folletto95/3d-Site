@@ -1181,8 +1181,7 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
         "debug": debug_payload,
     }
 
-@app.post("/slice/estimate")
-def slice_estimate(payload: dict = Body(...)):
+def _slice_estimate(payload: dict) -> JSONResponse:
     """
     Richiede:
     {
@@ -1339,3 +1338,33 @@ def slice_estimate(payload: dict = Body(...)):
     if debug_payload:
         response["debug"] = debug_payload
     return _no_cache(response)
+
+
+@app.post("/slice/estimate")
+def slice_estimate(payload: dict = Body(...)):
+    return _slice_estimate(payload)
+
+
+@app.post("/api/slice/estimate")
+def slice_estimate_prefixed(payload: dict = Body(...)):
+    return _slice_estimate(payload)
+
+
+@app.get("/slice/estimate")
+@app.get("/api/slice/estimate")
+def slice_estimate_info():
+    return _no_cache({
+        "detail": "Usa POST /slice/estimate con un JSON valido per calcolare la stima.",
+        "method": "POST",
+        "payload": {
+            "viewer_url": "/files/<percorso_modello>",
+            "inventory_key": "<chiave_materiale>",
+            "settings": {
+                "layer_h": 0.2,
+                "infill": 15,
+                "nozzle": 0.4,
+                "print_speed": 60,
+                "travel_speed": 150,
+            },
+        },
+    })

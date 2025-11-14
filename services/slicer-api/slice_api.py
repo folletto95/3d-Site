@@ -1555,16 +1555,10 @@ async def modern_slice_estimate_info():
             "payload": {
                 "viewer_url": "/ui/uploads/<file>",
                 "inventory_key": "<chiave_materiale>",
-                "preset_print": "x1c_standard_020.ini",
-                "preset_printer": "printer.ini",
-                "settings": {
-                    "layer_h": 0.2,
-                    "infill": 15,
-                    "nozzle": 0.4,
-                    "print_speed": 60,
-                    "travel_speed": 150,
-                },
+                "preset_print": "<profilo_stampa>.ini",
+                "preset_printer": "<profilo_stampante>.ini",
             },
+            "note": "Il campo 'settings' è opzionale e va inviato solo per override manuali.",
         }
     )
 

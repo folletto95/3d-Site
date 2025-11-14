@@ -158,33 +158,18 @@ async function handleEstimate(options = {}) {
   const machineFromPreset = (presetDefinition && presetDefinition.machine) || state.selectedMachine || 'generic';
   const presetProfileName = getPresetProfileName(presetKey);
   const presetPrinterProfile = getPresetPrinterProfile(presetKey);
-  const presetLayer = presetDefinition && typeof presetDefinition.layer_h === 'number' ? presetDefinition.layer_h : undefined;
-  const presetInfill = presetDefinition && typeof presetDefinition.infill === 'number' ? presetDefinition.infill : undefined;
-  const presetNozzle = presetDefinition && typeof presetDefinition.nozzle === 'number' ? presetDefinition.nozzle : undefined;
-  const presetPrintSpeed = presetDefinition && typeof presetDefinition.print_speed === 'number' ? presetDefinition.print_speed : undefined;
-  const presetTravelSpeed = presetDefinition && typeof presetDefinition.travel_speed === 'number' ? presetDefinition.travel_speed : undefined;
-
-  const parsedLayer = parseFloat(getValue('layer_h', presetLayer != null ? String(presetLayer) : '0.2'));
-  const parsedInfill = parseFloat(getValue('infill', presetInfill != null ? String(presetInfill) : '15'));
-  const parsedNozzle = parseFloat(getValue('nozzle', presetNozzle != null ? String(presetNozzle) : '0.4'));
-  const parsedPrintSpeed = parseFloat(getValue('print_speed', presetPrintSpeed != null ? String(presetPrintSpeed) : '60'));
-  const parsedTravelSpeed = parseFloat(getValue('travel_speed', presetTravelSpeed != null ? String(presetTravelSpeed) : '150'));
-
   const payload = {
     viewer_url: state.currentViewerUrl,
     inventory_key: state.selectedKey,
     machine: machineFromPreset,
     preset_print: presetProfileName || undefined,
     preset_printer: presetPrinterProfile || undefined,
-    settings: {
-      machine: machineFromPreset,
-      layer_h: Number.isFinite(parsedLayer) ? parsedLayer : (presetLayer != null ? presetLayer : 0.2),
-      infill: Number.isFinite(parsedInfill) ? parsedInfill : (presetInfill != null ? presetInfill : 15),
-      nozzle: Number.isFinite(parsedNozzle) ? parsedNozzle : (presetNozzle != null ? presetNozzle : 0.4),
-      print_speed: Number.isFinite(parsedPrintSpeed) ? parsedPrintSpeed : (presetPrintSpeed != null ? presetPrintSpeed : 60),
-      travel_speed: Number.isFinite(parsedTravelSpeed) ? parsedTravelSpeed : (presetTravelSpeed != null ? presetTravelSpeed : 150),
-    },
   };
+
+  const manualSettings = collectManualOverrides(presetDefinition);
+  if (manualSettings) {
+    payload.settings = manualSettings;
+  }
 
   if (presetDefinition && presetDefinition.machine && machineFromPreset !== state.selectedMachine) {
     setSelectedMachine(presetDefinition.machine);
@@ -268,10 +253,46 @@ function setViewerStatus(message) {
   }
 }
 
-function getValue(id, fallback) {
-  const element = document.getElementById(id);
-  if (!element) return fallback;
-  return element.value || fallback;
+function collectManualOverrides(presetDefinition) {
+  const overrides = {};
+  let hasOverrides = false;
+
+  const numericFields = [
+    { id: 'layer_h', key: 'layer_h' },
+    { id: 'infill', key: 'infill' },
+    { id: 'nozzle', key: 'nozzle' },
+    { id: 'print_speed', key: 'print_speed' },
+    { id: 'travel_speed', key: 'travel_speed' },
+  ];
+
+  const tolerance = 1e-6;
+
+  for (const field of numericFields) {
+    const element = document.getElementById(field.id);
+    if (!element) {
+      continue;
+    }
+    const raw = typeof element.value === 'string' ? element.value.trim() : '';
+    if (!raw) {
+      continue;
+    }
+    const value = Number(raw.replace(',', '.'));
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+
+    const presetValue =
+      presetDefinition && typeof presetDefinition[field.key] === 'number'
+        ? Number(presetDefinition[field.key])
+        : null;
+
+    if (presetValue == null || Math.abs(value - presetValue) > tolerance) {
+      overrides[field.key] = value;
+      hasOverrides = true;
+    }
+  }
+
+  return hasOverrides ? overrides : null;
 }
 
 async function parseJson(response) {

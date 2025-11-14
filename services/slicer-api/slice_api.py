@@ -992,6 +992,27 @@ def _extract_settings_id_from_profile(path: Path, key: str) -> str | None:
     return None
 
 
+def _profile_cli_name(kind: str, path: Path) -> str | None:
+    key_order = {
+        "print": ["print_profile", "print_settings_id", "name"],
+        "filament": ["filament_profile", "name", "filament_settings_id"],
+        "printer": ["printer_profile", "name", "printer_settings_id"],
+    }
+    tried: set[str] = set()
+    for key in key_order.get(kind, []):
+        if key in tried:
+            continue
+        tried.add(key)
+        value = _extract_settings_id_from_profile(path, key)
+        if value:
+            return value
+    if "name" not in tried:
+        value = _extract_settings_id_from_profile(path, "name")
+        if value:
+            return value
+    return None
+
+
 def _normalize_settings_id(value: str | None) -> str:
     if not value:
         return ""
@@ -1172,6 +1193,19 @@ def _build_prusaslicer_args(
         "--output",
         output_path,
     ]
+
+    printer_name = _profile_cli_name("printer", printer_profile)
+    if printer_name:
+        args.extend(["--printer-profile", printer_name])
+
+    filament_name = _profile_cli_name("filament", filament_profile)
+    if filament_name:
+        args.extend(["--material-profile", filament_name])
+
+    print_name = _profile_cli_name("print", print_profile)
+    if print_name:
+        args.extend(["--print-profile", print_name])
+
     args.append(input_path)
 
     return _sanitize_prusaslicer_args(args)

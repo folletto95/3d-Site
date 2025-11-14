@@ -670,9 +670,12 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
     entirely or returns an obviously incorrect constant value.  It parses
     linear moves (G0 and G1), accumulates distances for extrusion moves and
     travel moves separately, then divides by the user‑supplied print and travel
-    speeds.  A modest fudge factor is applied to compensate for acceleration
-    and other overheads.  If no valid distances are found, the estimator
-    returns 0.
+    speeds.  The parser now keeps track of absolute/relative extrusion mode,
+    handles common `G92` resets and treats positive relative extrusion deltas
+    as printing moves so that presets with slower speeds correctly yield
+    longer times.  A modest fudge factor is applied to compensate for
+    acceleration and other overheads.  If no valid distances are found, the
+    estimator returns 0.
 
     :param gcode_path: Path to the generated G‑code file.
     :param print_speed: Printing speed in mm/s from the preset.
@@ -683,25 +686,48 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
         total_print_dist = 0.0
         total_travel_dist = 0.0
         last_pos = {"X": 0.0, "Y": 0.0, "Z": 0.0}
-        last_e = None
+        last_e = 0.0
+        last_e_valid = False
+        extrusion_relative = False
         with open(gcode_path, "r", encoding="utf-8", errors="ignore") as f:
             for raw in f:
                 if not raw:
                     continue
-                # Skip comment lines
-                if raw.lstrip().startswith(";"):
+                stripped = raw.strip()
+                if not stripped:
                     continue
-                line = raw.lstrip()
-                # Only handle G0/G1 moves
-                if not (line.startswith("G0") or line.startswith("G1")):
+                if stripped.startswith(";"):
                     continue
-                # Extract coordinates and E values
-                # Example: G1 X23.4 Y12.3 E0.001
-                coords = re.findall(r"([XYZE])([-+]?\d*\.?\d+)", line, re.IGNORECASE)
+                upper = stripped.upper()
+                # Track extrusion mode switches (absolute/relative)
+                if upper.startswith("M82"):
+                    extrusion_relative = False
+                    last_e_valid = False
+                    last_e = 0.0
+                    continue
+                if upper.startswith("M83"):
+                    extrusion_relative = True
+                    last_e_valid = False
+                    last_e = 0.0
+                    continue
+                if upper.startswith("G92"):
+                    m = re.search(r"\bE([-+]?\d*\.?\d+)", stripped, re.IGNORECASE)
+                    if m:
+                        try:
+                            last_e = float(m.group(1))
+                            last_e_valid = True
+                        except ValueError:
+                            pass
+                    continue
+                if not (upper.startswith("G0") or upper.startswith("G1")):
+                    continue
+                coords = re.findall(r"([XYZE])([-+]?\d*\.?\d+)", stripped, re.IGNORECASE)
                 if not coords:
                     continue
                 new_pos = dict(last_pos)
                 extruding = False
+                e_value = None
+                e_delta = None
                 for axis, val in coords:
                     axis = axis.upper()
                     try:
@@ -711,15 +737,33 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
                     if axis in ("X", "Y", "Z"):
                         new_pos[axis] = num
                     elif axis == "E":
-                        # Detect positive extrusion relative to the previous E value
-                        if last_e is not None and num > last_e:
+                        if extrusion_relative:
+                            e_delta = num
+                        else:
+                            e_value = num
+                if extrusion_relative:
+                    if e_delta is not None:
+                        if e_delta > 1e-6:
                             extruding = True
-                        last_e = num
-                # Compute Euclidean distance in XYZ space
+                        elif e_delta < -1e-6:
+                            extruding = False
+                        last_e = (last_e if last_e_valid else 0.0) + e_delta
+                        last_e_valid = True
+                else:
+                    if e_value is not None:
+                        if not last_e_valid:
+                            if e_value > 1e-6:
+                                extruding = True
+                            last_e_valid = True
+                        else:
+                            delta = e_value - last_e
+                            if delta > 1e-6:
+                                extruding = True
+                        last_e = e_value
                 dx = new_pos["X"] - last_pos["X"]
                 dy = new_pos["Y"] - last_pos["Y"]
                 dz = new_pos["Z"] - last_pos["Z"]
-                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                dist = math.sqrt(dx * dx + dy * dy + dz * dz)
                 if dist > 0:
                     if extruding:
                         total_print_dist += dist

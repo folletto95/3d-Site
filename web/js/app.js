@@ -237,6 +237,10 @@ async function handleEstimate(options = {}) {
           html += '<br><span style="color:#ff6b6b;font-weight:bold;">⚠️ Prusa ha usato un ID diverso dal preset previsto!</span>';
         }
       }
+      const debugHtml = renderEstimateDebug(data.debug);
+      if (debugHtml) {
+        html += `<br>${debugHtml}`;
+      }
       outputElement.innerHTML = html;
     }
     return data;
@@ -498,6 +502,7 @@ function normalizeEstimateResponse(data, selectedItem) {
     preset_filament_used: presetFilamentUsed,
     preset_print_is_default: presetPrintDefault,
     presets_used: presetsUsed,
+    debug: normalizeEstimateDebug(source.debug),
   };
 }
 
@@ -650,6 +655,375 @@ async function fetchModelForLegacy(url) {
     }
   }
   return null;
+}
+
+function normalizeEstimateDebug(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const debug = {};
+  const cura = normalizeCuraDebug(raw.cura);
+  if (cura) {
+    debug.cura = cura;
+  }
+  const motion = normalizeMotionDebug(raw.motion);
+  if (motion) {
+    debug.motion = motion;
+  }
+  return Object.keys(debug).length ? debug : null;
+}
+
+function normalizeCuraDebug(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const result = {};
+  const args = Array.isArray(raw.args)
+    ? raw.args.map((value) => safeString(value)).filter(Boolean)
+    : [];
+  if (args.length) {
+    result.args = args;
+  }
+  const profile = normalizeCuraProfile(raw.profile);
+  if (profile) {
+    result.profile = profile;
+  }
+  const definitions = normalizeCuraDefinitions(raw.definitions);
+  if (definitions) {
+    result.definitions = definitions;
+  }
+  const stdout = normalizeDebugLines(raw.stdout_tail ?? raw.stdout);
+  if (stdout.length) {
+    result.stdout = stdout;
+  }
+  const stderr = normalizeDebugLines(raw.stderr_tail ?? raw.stderr);
+  if (stderr.length) {
+    result.stderr = stderr;
+  }
+  const modelPath = safeString(raw.model_to_slice ?? raw.model);
+  if (modelPath) {
+    result.model = modelPath;
+  }
+  const outputPath = safeString(raw.output_gcode ?? raw.output);
+  if (outputPath) {
+    result.output = outputPath;
+  }
+  const returnCode = toNumber(raw.returncode);
+  if (returnCode != null) {
+    result.returncode = returnCode;
+  }
+  return Object.keys(result).length ? result : null;
+}
+
+function normalizeCuraProfile(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const profile = {};
+  const machine = safeString(raw.machine);
+  if (machine) {
+    profile.machine = machine;
+  }
+  const layer = toNumber(raw.layer_height ?? raw.layer_h ?? raw.layerHeight);
+  if (layer != null) {
+    profile.layer_height = layer;
+  }
+  const infill = toNumber(raw.infill);
+  if (infill != null) {
+    profile.infill = infill;
+  }
+  const nozzle = toNumber(raw.nozzle ?? raw.machine_nozzle_size);
+  if (nozzle != null) {
+    profile.nozzle = nozzle;
+  }
+  const printSpeed = toNumber(raw.print_speed ?? raw.speed_print);
+  if (printSpeed != null) {
+    profile.print_speed = printSpeed;
+  }
+  const travelSpeed = toNumber(raw.travel_speed ?? raw.speed_travel);
+  if (travelSpeed != null) {
+    profile.travel_speed = travelSpeed;
+  }
+  const filamentDiameter = toNumber(raw.filament_diameter ?? raw.material_diameter);
+  if (filamentDiameter != null) {
+    profile.filament_diameter = filamentDiameter;
+  }
+  return Object.keys(profile).length ? profile : null;
+}
+
+function normalizeCuraDefinitions(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const definitions = {};
+  const printer = safeString(raw.printer);
+  if (printer) {
+    definitions.printer = printer;
+  }
+  const extruder = safeString(raw.extruder);
+  if (extruder) {
+    definitions.extruder = extruder;
+  }
+  return Object.keys(definitions).length ? definitions : null;
+}
+
+function normalizeDebugLines(value) {
+  if (!value) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => safeString(item)).filter(Boolean);
+  }
+  return String(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function normalizeMotionDebug(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const motion = {};
+  if (raw.error) {
+    motion.error = safeString(raw.error);
+  }
+  const timeEstimate = toNumber(raw.time_s_estimate);
+  if (timeEstimate != null) {
+    motion.time_s_estimate = timeEstimate;
+  }
+  const timeBase = toNumber(raw.time_s_without_fudge);
+  if (timeBase != null) {
+    motion.time_s_without_fudge = timeBase;
+  }
+  const fudge = toNumber(raw.fudge_factor);
+  if (fudge != null) {
+    motion.fudge_factor = fudge;
+  }
+  const printAxis = normalizeMotionAxis(raw.print);
+  if (printAxis) {
+    motion.print = printAxis;
+  }
+  const travelAxis = normalizeMotionAxis(raw.travel);
+  if (travelAxis) {
+    motion.travel = travelAxis;
+  }
+  return Object.keys(motion).length ? motion : null;
+}
+
+function normalizeMotionAxis(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const axis = {};
+  const distance = toNumber(raw.distance_mm);
+  if (distance != null) {
+    axis.distance_mm = distance;
+  }
+  const moves = toNumber(raw.moves);
+  if (moves != null) {
+    axis.moves = Math.round(moves);
+  }
+  const timeRaw = toNumber(raw.time_s_raw);
+  if (timeRaw != null) {
+    axis.time_s_raw = timeRaw;
+  }
+  const timeEffective = toNumber(raw.time_s_effective);
+  if (timeEffective != null) {
+    axis.time_s_effective = timeEffective;
+  }
+  if (raw.used_fallback === true) {
+    axis.used_fallback = true;
+  }
+  const fallbackFeed = toNumber(raw.fallback_feed_mm_s);
+  if (fallbackFeed != null) {
+    axis.fallback_feed_mm_s = fallbackFeed;
+  }
+  const effectiveFeed = toNumber(raw.effective_feed_mm_s);
+  if (effectiveFeed != null) {
+    axis.effective_feed_mm_s = effectiveFeed;
+  }
+  const gcodeFeed = normalizeMotionFeed(raw.gcode_feed);
+  if (gcodeFeed) {
+    axis.gcode_feed = gcodeFeed;
+  }
+  return Object.keys(axis).length ? axis : null;
+}
+
+function normalizeMotionFeed(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const feed = {};
+  const count = toNumber(raw.count);
+  if (count != null) {
+    feed.count = Math.round(count);
+  }
+  const avg = toNumber(raw.avg);
+  if (avg != null) {
+    feed.avg = avg;
+  }
+  const min = toNumber(raw.min);
+  if (min != null) {
+    feed.min = min;
+  }
+  const max = toNumber(raw.max);
+  if (max != null) {
+    feed.max = max;
+  }
+  const samples = Array.isArray(raw.samples)
+    ? raw.samples.map((value) => toNumber(value)).filter((value) => value != null)
+    : [];
+  if (samples.length) {
+    feed.samples = samples;
+  }
+  return Object.keys(feed).length ? feed : null;
+}
+
+function renderEstimateDebug(debug) {
+  if (!debug || typeof debug !== 'object') {
+    return '';
+  }
+  const sections = [];
+  const motionSection = renderMotionDebug(debug.motion);
+  if (motionSection) {
+    sections.push(motionSection);
+  }
+  const curaSection = renderCuraDebug(debug.cura);
+  if (curaSection) {
+    sections.push(curaSection);
+  }
+  if (!sections.length) {
+    return '';
+  }
+  const body = sections.join('<hr class="estimate-debug-sep">');
+  return `<details class="estimate-debug"><summary>Debug slicing</summary>${body}</details>`;
+}
+
+function renderMotionDebug(motion) {
+  if (!motion || typeof motion !== 'object') {
+    return '';
+  }
+  const parts = [];
+  if (motion.error) {
+    parts.push(`<span style="color:#ff6b6b;font-weight:bold;">Analisi G-code fallita: ${escapeHtml(motion.error)}</span>`);
+  }
+  if (motion.time_s_estimate != null) {
+    const minutes = formatMinutes(motion.time_s_estimate);
+    const seconds = formatNumber(motion.time_s_estimate, 0);
+    const fudge = motion.fudge_factor != null ? formatNumber(motion.fudge_factor, 2) : null;
+    const label = minutes != null ? `${minutes} min` : (seconds != null ? `${seconds} s` : 'n/d');
+    const suffix = fudge ? ` (fattore ${fudge})` : '';
+    parts.push(`Stima G-code: <b>${label}</b>${suffix}`);
+  }
+  const printLine = renderMotionAxis('Estrusione', motion.print);
+  if (printLine) {
+    parts.push(printLine);
+  }
+  const travelLine = renderMotionAxis('Travel', motion.travel);
+  if (travelLine) {
+    parts.push(travelLine);
+  }
+  if (!parts.length) {
+    return '';
+  }
+  return `<div class="estimate-debug-block">${parts.join('<br>')}</div>`;
+}
+
+function renderMotionAxis(label, axis) {
+  if (!axis || typeof axis !== 'object') {
+    return '';
+  }
+  const bits = [];
+  if (axis.distance_mm != null) {
+    bits.push(`distanza ${formatNumber(axis.distance_mm, 1)} mm`);
+  }
+  if (axis.moves != null) {
+    bits.push(`${axis.moves} mosse`);
+  }
+  if (axis.effective_feed_mm_s != null) {
+    bits.push(`feed effettivo ${formatNumber(axis.effective_feed_mm_s, 1)} mm/s`);
+  }
+  const gcodeFeed = axis.gcode_feed;
+  if (gcodeFeed && typeof gcodeFeed === 'object' && Array.isArray(gcodeFeed.samples) && gcodeFeed.samples.length) {
+    bits.push(`feed G-code: ${formatFeedSamples(gcodeFeed.samples)}`);
+  }
+  if (axis.used_fallback && (!gcodeFeed || !gcodeFeed.samples || !gcodeFeed.samples.length)) {
+    const fallback = axis.fallback_feed_mm_s != null ? `${formatNumber(axis.fallback_feed_mm_s, 1)} mm/s` : 'preset';
+    bits.push(`velocità da preset (${fallback})`);
+  }
+  return bits.length ? `${label}: ${bits.join(' — ')}` : '';
+}
+
+function formatFeedSamples(values) {
+  return values
+    .map((value) => {
+      const formatted = formatNumber(value, value >= 100 ? 0 : 1);
+      return formatted != null ? `${formatted} mm/s` : null;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function renderCuraDebug(cura) {
+  if (!cura || typeof cura !== 'object') {
+    return '';
+  }
+  const parts = [];
+  if (cura.profile) {
+    const profile = [];
+    if (cura.profile.machine) {
+      profile.push(`macchina ${escapeHtml(cura.profile.machine)}`);
+    }
+    if (cura.profile.layer_height != null) {
+      profile.push(`layer ${formatNumber(cura.profile.layer_height, 2)} mm`);
+    }
+    if (cura.profile.print_speed != null) {
+      profile.push(`print ${formatNumber(cura.profile.print_speed, 0)} mm/s`);
+    }
+    if (cura.profile.travel_speed != null) {
+      profile.push(`travel ${formatNumber(cura.profile.travel_speed, 0)} mm/s`);
+    }
+    if (cura.profile.infill != null) {
+      profile.push(`infill ${formatNumber(cura.profile.infill, 0)}%`);
+    }
+    if (profile.length) {
+      parts.push(`Preset inviato: ${profile.join(' — ')}`);
+    }
+  }
+  if (cura.definitions) {
+    const defs = [];
+    if (cura.definitions.printer) {
+      defs.push(`printer: ${escapeHtml(cura.definitions.printer)}`);
+    }
+    if (cura.definitions.extruder) {
+      defs.push(`extruder: ${escapeHtml(cura.definitions.extruder)}`);
+    }
+    if (defs.length) {
+      parts.push(defs.join(' — '));
+    }
+  }
+  if (cura.args && cura.args.length) {
+    parts.push(`<div>Comando: <code>${escapeHtml(cura.args.join(' '))}</code></div>`);
+  }
+  if (cura.model) {
+    parts.push(`Modello: <code>${escapeHtml(cura.model)}</code>`);
+  }
+  if (cura.output) {
+    parts.push(`G-code: <code>${escapeHtml(cura.output)}</code>`);
+  }
+  if (cura.returncode != null) {
+    parts.push(`Return code: ${cura.returncode}`);
+  }
+  const logs = [];
+  if (cura.stdout && cura.stdout.length) {
+    logs.push(`<details><summary>stdout</summary><pre>${escapeHtml(cura.stdout.join('\n'))}</pre></details>`);
+  }
+  if (cura.stderr && cura.stderr.length) {
+    logs.push(`<details><summary>stderr</summary><pre>${escapeHtml(cura.stderr.join('\n'))}</pre></details>`);
+  }
+  const content = parts.concat(logs);
+  return content.length ? `<div class="estimate-debug-block">${content.join('<br>')}</div>` : '';
 }
 
 function buildLegacyDownloadCandidates(url) {

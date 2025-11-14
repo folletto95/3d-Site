@@ -101,6 +101,21 @@ app.mount("/web", StaticFiles(directory="/app/web"), name="web")
 def _no_cache(payload: dict):
     return JSONResponse(content=payload, headers={"Cache-Control": "no-store, max-age=0"})
 
+
+def _tail_lines(text, limit: int = 20) -> list[str]:
+    if not text:
+        return []
+    if isinstance(text, bytes):
+        try:
+            text = text.decode("utf-8", errors="ignore")
+        except Exception:
+            text = text.decode("latin-1", errors="ignore")
+    lines = [line.strip("\r\n") for line in str(text).splitlines() if line.strip()]
+    if limit and len(lines) > limit:
+        return lines[-limit:]
+    return lines
+
+
 def _spoolman_urls(paths: list[str]) -> list[str]:
     urls: list[str] = []
     for base in SPOOLMAN_BASES:
@@ -663,36 +678,38 @@ def _is_within_build_volume(gcode_path: Path, max_dim: float = 255.0) -> bool:
     except Exception:
         return False
 
-def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel_speed: float) -> float:
-    """
-    Approximate print time by analysing the generated G‑code.  CuraEngine 4.x often
-    emits an almost constant `;TIME:` comment, so we instead parse all linear moves
-    (G0/G1) and derive the duration from their feed rates.  The parser keeps track
-    of absolute/relative extrusion mode, `G92` resets and the most recent `F` value
-    so that per‑move feed changes emitted by different presets immediately impact
-    the estimate.  Distances for extrusion and travel moves are accumulated
-    separately and converted into seconds using the active feed rate; when Cura
-    omits a feed we fall back to the preset print/travel speed.  A modest fudge
-    factor is then applied to compensate for acceleration and other overheads.
-    If parsing fails or yields no valid movements the estimator returns 0.
-
-    :param gcode_path: Path to the generated G‑code file.
-    :param print_speed: Default printing speed in mm/s from the preset.
-    :param travel_speed: Default travel speed in mm/s from the preset.
-    :return: Estimated print time in seconds (float).
-    """
+def _analyze_gcode_motion(
+    gcode_path: Path,
+    print_speed: float,
+    travel_speed: float,
+) -> dict | None:
     try:
         total_print_dist = 0.0
         total_travel_dist = 0.0
         total_print_time = 0.0
         total_travel_time = 0.0
+        print_moves = 0
+        travel_moves = 0
         last_pos = {"X": 0.0, "Y": 0.0, "Z": 0.0}
         last_e = 0.0
         last_e_valid = False
         extrusion_relative = False
         current_feed_mm_s: float | None = None
+        current_feed_from_gcode = False
         last_print_feed_mm_s = max(1e-3, float(print_speed))
+        last_print_feed_from_gcode = False
         last_travel_feed_mm_s = max(1e-3, float(travel_speed))
+        last_travel_feed_from_gcode = False
+        print_feed_samples: list[float] = []
+        travel_feed_samples: list[float] = []
+        print_feed_sum = 0.0
+        travel_feed_sum = 0.0
+        print_feed_min = float("inf")
+        print_feed_max = 0.0
+        travel_feed_min = float("inf")
+        travel_feed_max = 0.0
+        used_fallback_print = False
+        used_fallback_travel = False
         with open(gcode_path, "r", encoding="utf-8", errors="ignore") as f:
             for raw in f:
                 if not raw:
@@ -703,7 +720,6 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
                 if stripped.startswith(";"):
                     continue
                 upper = stripped.upper()
-                # Track extrusion mode switches (absolute/relative)
                 if upper.startswith("M82"):
                     extrusion_relative = False
                     last_e_valid = False
@@ -770,30 +786,141 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
                         last_e = e_value
                 if feed_value_mm_s is not None:
                     current_feed_mm_s = max(1e-3, feed_value_mm_s)
+                    current_feed_from_gcode = True
                 dx = new_pos["X"] - last_pos["X"]
                 dy = new_pos["Y"] - last_pos["Y"]
                 dz = new_pos["Z"] - last_pos["Z"]
                 dist = math.sqrt(dx * dx + dy * dy + dz * dz)
                 if dist > 0:
                     if extruding:
-                        feed = current_feed_mm_s if current_feed_mm_s else last_print_feed_mm_s
-                        feed = max(1e-3, feed)
+                        if current_feed_mm_s is not None:
+                            feed = max(1e-3, current_feed_mm_s)
+                            from_gcode = current_feed_from_gcode
+                        else:
+                            feed = max(1e-3, last_print_feed_mm_s)
+                            from_gcode = last_print_feed_from_gcode
+                            if not from_gcode:
+                                used_fallback_print = True
                         total_print_dist += dist
                         total_print_time += dist / feed
+                        print_moves += 1
+                        if from_gcode:
+                            print_feed_samples.append(feed)
+                            print_feed_sum += feed
+                            if feed < print_feed_min:
+                                print_feed_min = feed
+                            if feed > print_feed_max:
+                                print_feed_max = feed
                         last_print_feed_mm_s = feed
+                        last_print_feed_from_gcode = from_gcode
                     else:
-                        feed = current_feed_mm_s if current_feed_mm_s else last_travel_feed_mm_s
-                        feed = max(1e-3, feed)
+                        if current_feed_mm_s is not None:
+                            feed = max(1e-3, current_feed_mm_s)
+                            from_gcode = current_feed_from_gcode
+                        else:
+                            feed = max(1e-3, last_travel_feed_mm_s)
+                            from_gcode = last_travel_feed_from_gcode
+                            if not from_gcode:
+                                used_fallback_travel = True
                         total_travel_dist += dist
                         total_travel_time += dist / feed
+                        travel_moves += 1
+                        if from_gcode:
+                            travel_feed_samples.append(feed)
+                            travel_feed_sum += feed
+                            if feed < travel_feed_min:
+                                travel_feed_min = feed
+                            if feed > travel_feed_max:
+                                travel_feed_max = feed
                         last_travel_feed_mm_s = feed
+                        last_travel_feed_from_gcode = from_gcode
                 last_pos = new_pos
+                current_feed_mm_s = None
+                current_feed_from_gcode = False
         if total_print_dist == 0 and total_travel_dist == 0:
-            return 0.0
+            return {
+                "time_s_estimate": 0.0,
+                "time_s_without_fudge": 0.0,
+                "fudge_factor": 1.2,
+                "print": {
+                    "distance_mm": 0.0,
+                    "moves": 0,
+                    "used_fallback": True,
+                    "fallback_feed_mm_s": max(1e-3, float(print_speed)),
+                },
+                "travel": {
+                    "distance_mm": 0.0,
+                    "moves": 0,
+                    "used_fallback": True,
+                    "fallback_feed_mm_s": max(1e-3, float(travel_speed)),
+                },
+            }
         time_print = total_print_time if total_print_time > 0 else (total_print_dist / max(1e-3, float(print_speed)))
         time_travel = total_travel_time if total_travel_time > 0 else (total_travel_dist / max(1e-3, float(travel_speed)))
-        # Add 20% overhead to approximate acceleration, deceleration and other pauses
-        return (time_print + time_travel) * 1.2
+        base_time = time_print + time_travel
+        fudge_factor = 1.2
+
+        def _summarize_feed(samples: list[float], feed_sum: float, feed_min: float, feed_max: float):
+            if not samples:
+                return None
+            count = len(samples)
+            avg = feed_sum / count if count else None
+            uniq: list[float] = []
+            seen: set[int] = set()
+            for value in samples:
+                key = int(round(value * 1000))
+                if key in seen:
+                    continue
+                seen.add(key)
+                uniq.append(round(value, 3))
+                if len(uniq) >= 12:
+                    break
+            return {
+                "count": count,
+                "avg": avg,
+                "min": feed_min if feed_min != float("inf") else None,
+                "max": feed_max if feed_max > 0 else None,
+                "samples": uniq,
+            }
+
+        return {
+            "time_s_estimate": base_time * fudge_factor,
+            "time_s_without_fudge": base_time,
+            "fudge_factor": fudge_factor,
+            "print": {
+                "distance_mm": total_print_dist,
+                "moves": print_moves,
+                "time_s_raw": total_print_time,
+                "time_s_effective": time_print,
+                "used_fallback": used_fallback_print or total_print_time <= 0,
+                "fallback_feed_mm_s": max(1e-3, float(print_speed)),
+                "gcode_feed": _summarize_feed(print_feed_samples, print_feed_sum, print_feed_min, print_feed_max),
+                "effective_feed_mm_s": (total_print_dist / time_print) if time_print > 0 else None,
+            },
+            "travel": {
+                "distance_mm": total_travel_dist,
+                "moves": travel_moves,
+                "time_s_raw": total_travel_time,
+                "time_s_effective": time_travel,
+                "used_fallback": used_fallback_travel or total_travel_time <= 0,
+                "fallback_feed_mm_s": max(1e-3, float(travel_speed)),
+                "gcode_feed": _summarize_feed(travel_feed_samples, travel_feed_sum, travel_feed_min, travel_feed_max),
+                "effective_feed_mm_s": (total_travel_dist / time_travel) if time_travel > 0 else None,
+            },
+        }
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel_speed: float) -> float:
+    analysis = _analyze_gcode_motion(gcode_path, print_speed, travel_speed)
+    if not analysis:
+        return 0.0
+    est = analysis.get("time_s_estimate")
+    if est is None:
+        return 0.0
+    try:
+        return float(est)
     except Exception:
         return 0.0
 
@@ -1022,11 +1149,36 @@ def _run_cura_slice(model_path: Path, layer_h=0.2, infill=15, nozzle=0.4,
         density_g_cm3=_density_for("")  # verrà ricalcolato più avanti su materiale
     )
 
+    debug_payload = {
+        "cura": {
+            "args": [str(arg) for arg in cura_args],
+            "returncode": cp.returncode,
+            "stdout_tail": _tail_lines(cp.stdout),
+            "stderr_tail": _tail_lines(cp.stderr),
+            "profile": {
+                "machine": machine,
+                "layer_height": layer_h,
+                "infill": infill,
+                "nozzle": nozzle,
+                "print_speed": print_speed,
+                "travel_speed": travel_speed,
+                "filament_diameter": filament_diam,
+            },
+            "definitions": {
+                "printer": str(printer_def) if printer_def else None,
+                "extruder": str(extruder_def) if extruder_def else None,
+            },
+            "model_to_slice": str(model_to_slice),
+            "output_gcode": str(out_gcode),
+        }
+    }
+
     return {
         "time_s": time_s,
         "filament_mm": filament_mm,
         "filament_g": filament_g,
-        "gcode_rel": out_gcode.relative_to(UPLOAD_ROOT).as_posix()
+        "gcode_rel": out_gcode.relative_to(UPLOAD_ROOT).as_posix(),
+        "debug": debug_payload,
     }
 
 @app.post("/slice/estimate")
@@ -1094,14 +1246,31 @@ def slice_estimate(payload: dict = Body(...)):
     # Only if the estimator yields zero (e.g. because of a parsing error)
     # do we fall back to CuraEngine's time comment.  This way the
     # returned time varies with model complexity and preset.
+    debug_payload: dict = {}
+    base_debug = r.get("debug")
+    if isinstance(base_debug, dict):
+        debug_payload.update(base_debug)
+
+    gcode_rel = r["gcode_rel"]
+    gcode_path = UPLOAD_ROOT / gcode_rel
     time_s = None
+    motion_analysis = None
+    motion_debug = None
     try:
-        gcode_path = UPLOAD_ROOT / r["gcode_rel"]
-        est = _estimate_print_time_from_gcode(gcode_path, print_speed, travel_speed)
-        if est > 0:
-            time_s = int(est)
-    except Exception:
-        time_s = None
+        motion_analysis = _analyze_gcode_motion(gcode_path, print_speed, travel_speed)
+        if motion_analysis and isinstance(motion_analysis, dict):
+            motion_debug = motion_analysis
+            est = motion_analysis.get("time_s_estimate")
+            if est is not None:
+                try:
+                    est_val = float(est)
+                except Exception:
+                    est_val = 0.0
+                if est_val > 0:
+                    time_s = int(est_val)
+    except Exception as exc:
+        motion_debug = {"error": f"{type(exc).__name__}: {exc}"}
+        motion_analysis = None
     if time_s is None or time_s == 0:
         # Use CuraEngine's time if available and non‑zero, otherwise zero
         ce_time = r.get("time_s")
@@ -1153,7 +1322,10 @@ def slice_estimate(payload: dict = Body(...)):
         # If the check fails unexpectedly, let it continue; slicing may still succeed
         pass
 
-    return _no_cache({
+    if motion_debug:
+        debug_payload.setdefault("motion", motion_debug)
+
+    response = {
         "time_s": round(time_s),
         "filament_g": round(filament_g, 1),
         "price_per_kg": round(float(price_per_kg), 2),
@@ -1162,5 +1334,8 @@ def slice_estimate(payload: dict = Body(...)):
         "cost_filament": round(cost_filament, 2),
         "cost_machine": round(cost_machine, 2),
         "total": round(total, 2),
-        "gcode_url": f"/files/{r['gcode_rel']}"
-    })
+        "gcode_url": f"/files/{gcode_rel}"
+    }
+    if debug_payload:
+        response["debug"] = debug_payload
+    return _no_cache(response)

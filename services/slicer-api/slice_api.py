@@ -1194,18 +1194,6 @@ def _build_prusaslicer_args(
         output_path,
     ]
 
-    printer_name = _profile_cli_name("printer", printer_profile)
-    if printer_name:
-        args.extend(["--printer-profile", printer_name])
-
-    filament_name = _profile_cli_name("filament", filament_profile)
-    if filament_name:
-        args.extend(["--material-profile", filament_name])
-
-    print_name = _profile_cli_name("print", print_profile)
-    if print_name:
-        args.extend(["--print-profile", print_name])
-
     args.append(input_path)
 
     return _sanitize_prusaslicer_args(args)

@@ -11,6 +11,7 @@ const fetchButton = document.getElementById('btnFetch');
 const deleteButton = document.getElementById('btnDelete');
 const estimateButton = document.getElementById('btnEstimate');
 const outputElement = document.getElementById('out');
+let isEstimating = false;
 const WIZARD_STORAGE_KEY = 'magazzinoWizardSeen';
 
 initPalette({ containerId: 'palette', filterInputId: 'paletteFilter' });
@@ -23,7 +24,7 @@ if (fetchButton) {
   fetchButton.addEventListener('click', handleFetchFromUrl);
 }
 if (estimateButton) {
-  estimateButton.addEventListener('click', handleEstimate);
+  estimateButton.addEventListener('click', () => handleEstimate());
 }
 if (deleteButton) {
   deleteButton.addEventListener('click', () => {
@@ -119,17 +120,31 @@ async function handleFetchFromUrl() {
   }
 }
 
-async function handleEstimate() {
+async function handleEstimate(options = {}) {
+  const silent = Boolean(options && options.silent);
+  if (isEstimating) {
+    if (!silent) {
+      alert('Una stima è già in corso, attendi il completamento.');
+    }
+    return null;
+  }
   if (!state.currentViewerUrl) {
-    alert('Carica prima un modello');
-    return;
+    if (!silent) {
+      alert('Carica prima un modello');
+    }
+    return null;
   }
   if (!state.selectedKey) {
-    alert('Seleziona un materiale dalla palette');
-    return;
+    if (!silent) {
+      alert('Seleziona un materiale dalla palette');
+    }
+    return null;
   }
-  if (!estimateButton) return;
+  if (!estimateButton) {
+    return null;
+  }
 
+  isEstimating = true;
   estimateButton.disabled = true;
   const previousText = estimateButton.textContent;
   estimateButton.textContent = 'Calcolo...';
@@ -224,12 +239,19 @@ async function handleEstimate() {
       }
       outputElement.innerHTML = html;
     }
+    return data;
   } catch (error) {
-    alert(error.message || 'Errore stima');
+    if (!silent) {
+      alert(error.message || 'Errore stima');
+    } else {
+      console.error('Stima automatica fallita', error);
+    }
     if (outputElement) {
       outputElement.innerHTML = '';
     }
+    return null;
   } finally {
+    isEstimating = false;
     estimateButton.disabled = false;
     estimateButton.textContent = previousText || 'Stima';
   }
@@ -783,3 +805,16 @@ function markWizardSeen() {
     // Ignora errori di storage (es. modalità privata)
   }
 }
+document.addEventListener('preset:changed', (event) => {
+  const reason = event && event.detail && event.detail.reason ? event.detail.reason : null;
+  if (reason === 'init') {
+    return;
+  }
+  if (!state.currentViewerUrl || !state.selectedKey) {
+    return;
+  }
+  if (!estimateButton || estimateButton.disabled || isEstimating) {
+    return;
+  }
+  handleEstimate({ silent: true, reason: reason || 'preset-change' });
+});

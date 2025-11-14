@@ -992,6 +992,27 @@ def _extract_settings_id_from_profile(path: Path, key: str) -> str | None:
     return None
 
 
+def _profile_cli_name(kind: str, path: Path) -> str | None:
+    key_order = {
+        "print": ["print_profile", "print_settings_id", "name"],
+        "filament": ["filament_profile", "name", "filament_settings_id"],
+        "printer": ["printer_profile", "name", "printer_settings_id"],
+    }
+    tried: set[str] = set()
+    for key in key_order.get(kind, []):
+        if key in tried:
+            continue
+        tried.add(key)
+        value = _extract_settings_id_from_profile(path, key)
+        if value:
+            return value
+    if "name" not in tried:
+        value = _extract_settings_id_from_profile(path, "name")
+        if value:
+            return value
+    return None
+
+
 def _normalize_settings_id(value: str | None) -> str:
     if not value:
         return ""

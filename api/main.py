@@ -665,30 +665,34 @@ def _is_within_build_volume(gcode_path: Path, max_dim: float = 255.0) -> bool:
 
 def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel_speed: float) -> float:
     """
-    Approximate print time by summing XYZ movement distances in the G‑code.  This
-    fallback estimator is used when CuraEngine either omits the `;TIME:` comment
-    entirely or returns an obviously incorrect constant value.  It parses
-    linear moves (G0 and G1), accumulates distances for extrusion moves and
-    travel moves separately, then divides by the user‑supplied print and travel
-    speeds.  The parser now keeps track of absolute/relative extrusion mode,
-    handles common `G92` resets and treats positive relative extrusion deltas
-    as printing moves so that presets with slower speeds correctly yield
-    longer times.  A modest fudge factor is applied to compensate for
-    acceleration and other overheads.  If no valid distances are found, the
-    estimator returns 0.
+    Approximate print time by analysing the generated G‑code.  CuraEngine 4.x often
+    emits an almost constant `;TIME:` comment, so we instead parse all linear moves
+    (G0/G1) and derive the duration from their feed rates.  The parser keeps track
+    of absolute/relative extrusion mode, `G92` resets and the most recent `F` value
+    so that per‑move feed changes emitted by different presets immediately impact
+    the estimate.  Distances for extrusion and travel moves are accumulated
+    separately and converted into seconds using the active feed rate; when Cura
+    omits a feed we fall back to the preset print/travel speed.  A modest fudge
+    factor is then applied to compensate for acceleration and other overheads.
+    If parsing fails or yields no valid movements the estimator returns 0.
 
     :param gcode_path: Path to the generated G‑code file.
-    :param print_speed: Printing speed in mm/s from the preset.
-    :param travel_speed: Travel speed in mm/s from the preset.
+    :param print_speed: Default printing speed in mm/s from the preset.
+    :param travel_speed: Default travel speed in mm/s from the preset.
     :return: Estimated print time in seconds (float).
     """
     try:
         total_print_dist = 0.0
         total_travel_dist = 0.0
+        total_print_time = 0.0
+        total_travel_time = 0.0
         last_pos = {"X": 0.0, "Y": 0.0, "Z": 0.0}
         last_e = 0.0
         last_e_valid = False
         extrusion_relative = False
+        current_feed_mm_s: float | None = None
+        last_print_feed_mm_s = max(1e-3, float(print_speed))
+        last_travel_feed_mm_s = max(1e-3, float(travel_speed))
         with open(gcode_path, "r", encoding="utf-8", errors="ignore") as f:
             for raw in f:
                 if not raw:
@@ -721,13 +725,14 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
                     continue
                 if not (upper.startswith("G0") or upper.startswith("G1")):
                     continue
-                coords = re.findall(r"([XYZE])([-+]?\d*\.?\d+)", stripped, re.IGNORECASE)
+                coords = re.findall(r"([XYZEF])([-+]?\d*\.?\d+)", stripped, re.IGNORECASE)
                 if not coords:
                     continue
                 new_pos = dict(last_pos)
                 extruding = False
                 e_value = None
                 e_delta = None
+                feed_value_mm_s = None
                 for axis, val in coords:
                     axis = axis.upper()
                     try:
@@ -741,6 +746,9 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
                             e_delta = num
                         else:
                             e_value = num
+                    elif axis == "F":
+                        if num > 0:
+                            feed_value_mm_s = num / 60.0
                 if extrusion_relative:
                     if e_delta is not None:
                         if e_delta > 1e-6:
@@ -760,22 +768,30 @@ def _estimate_print_time_from_gcode(gcode_path: Path, print_speed: float, travel
                             if delta > 1e-6:
                                 extruding = True
                         last_e = e_value
+                if feed_value_mm_s is not None:
+                    current_feed_mm_s = max(1e-3, feed_value_mm_s)
                 dx = new_pos["X"] - last_pos["X"]
                 dy = new_pos["Y"] - last_pos["Y"]
                 dz = new_pos["Z"] - last_pos["Z"]
                 dist = math.sqrt(dx * dx + dy * dy + dz * dz)
                 if dist > 0:
                     if extruding:
+                        feed = current_feed_mm_s if current_feed_mm_s else last_print_feed_mm_s
+                        feed = max(1e-3, feed)
                         total_print_dist += dist
+                        total_print_time += dist / feed
+                        last_print_feed_mm_s = feed
                     else:
+                        feed = current_feed_mm_s if current_feed_mm_s else last_travel_feed_mm_s
+                        feed = max(1e-3, feed)
                         total_travel_dist += dist
+                        total_travel_time += dist / feed
+                        last_travel_feed_mm_s = feed
                 last_pos = new_pos
         if total_print_dist == 0 and total_travel_dist == 0:
             return 0.0
-        ps = max(1e-3, float(print_speed))
-        ts = max(1e-3, float(travel_speed))
-        time_print = total_print_dist / ps
-        time_travel = total_travel_dist / ts
+        time_print = total_print_time if total_print_time > 0 else (total_print_dist / max(1e-3, float(print_speed)))
+        time_travel = total_travel_time if total_travel_time > 0 else (total_travel_dist / max(1e-3, float(travel_speed)))
         # Add 20% overhead to approximate acceleration, deceleration and other pauses
         return (time_print + time_travel) * 1.2
     except Exception:

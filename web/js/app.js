@@ -187,6 +187,9 @@ async function handleEstimate() {
       const totalCost = formatCurrency(data.total, currency);
       const presetUsed = data && data.preset_print_used ? String(data.preset_print_used) : null;
       const presetDefault = Boolean(data && data.preset_print_is_default);
+      const presetReportedId = data && data.preset_print_reported_id ? String(data.preset_print_reported_id) : null;
+      const presetExpectedId = data && data.preset_print_expected_id ? String(data.preset_print_expected_id) : null;
+      const presetMatch = typeof (data && data.preset_print_matches) === 'boolean' ? Boolean(data.preset_print_matches) : null;
       let html = `
         Tempo: <b>${minutes != null ? `${minutes} min` : 'n/d'}</b> — Filamento: <b>${filament != null ? `${filament} g` : 'n/d'}</b><br>
         Costo filamento: <b>${costFilament}</b> — Costo macchina: <b>${costMachine}</b><br>
@@ -195,9 +198,29 @@ async function handleEstimate() {
       if (data.gcode_url) {
         html += ` — <a href="${data.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>`;
       }
-      if (presetUsed) {
-        const presetLabel = presetDefault ? `${presetUsed} (default)` : presetUsed;
-        html += `<br>Preset Prusa: <b>${escapeHtml(presetLabel)}</b>`;
+      if (presetUsed || presetReportedId || presetExpectedId) {
+        let presetLabel = '';
+        if (presetUsed) {
+          const baseLabel = presetDefault ? `${presetUsed} (default)` : presetUsed;
+          presetLabel += `<b>${escapeHtml(baseLabel)}</b>`;
+        }
+
+        if (presetLabel) {
+          html += `<br>Preset Prusa: ${presetLabel}`;
+        } else {
+          html += '<br>Preset Prusa:';
+        }
+
+        if (presetReportedId) {
+          html += `<br><small>ID G-code: <b>${escapeHtml(presetReportedId)}</b></small>`;
+        }
+        if (presetExpectedId) {
+          html += `<br><small>ID atteso: <b>${escapeHtml(presetExpectedId)}</b></small>`;
+        }
+
+        if (presetMatch === false && presetReportedId && presetExpectedId) {
+          html += '<br><span style="color:#ff6b6b;font-weight:bold;">⚠️ Prusa ha usato un ID diverso dal preset previsto!</span>';
+        }
       }
       outputElement.innerHTML = html;
     }

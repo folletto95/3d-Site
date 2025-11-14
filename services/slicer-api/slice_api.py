@@ -145,6 +145,9 @@ _LOG.addHandler(logging.NullHandler())
 
 _HEX_RE = re.compile(r"#?[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+_PRINT_SETTINGS_ID_RE = re.compile(r";\s*print_settings_id\s*=\s*(.+)")
+_FILAMENT_SETTINGS_ID_RE = re.compile(r";\s*filament_settings_id\s*=\s*(.+)")
+_PRINTER_SETTINGS_ID_RE = re.compile(r";\s*printer_settings_id\s*=\s*(.+)")
 
 def _bases_from_env():
     bases: list[str] = []
@@ -888,6 +891,51 @@ def _estimate_filament_length_from_gcode_text(gcode: str) -> float:
 
     return sum(totals.values())
 
+
+def _parse_preset_ids_from_gcode(gcode: str) -> dict[str, str | None]:
+    def _match(pattern: re.Pattern[str]) -> str | None:
+        m = pattern.search(gcode)
+        if not m:
+            return None
+        value = (m.group(1) or "").strip()
+        if value.startswith(('"', "'")) and value.endswith(('"', "'")) and len(value) >= 2:
+            value = value[1:-1].strip()
+        return value or None
+
+    return {
+        "print": _match(_PRINT_SETTINGS_ID_RE),
+        "filament": _match(_FILAMENT_SETTINGS_ID_RE),
+        "printer": _match(_PRINTER_SETTINGS_ID_RE),
+    }
+
+
+def _extract_settings_id_from_profile(path: Path, key: str) -> str | None:
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith(";") or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                lhs, rhs = line.split("=", 1)
+                if lhs.strip().lower() != key.strip().lower():
+                    continue
+                value = rhs.strip()
+                if value.startswith(('"', "'")) and value.endswith(('"', "'")) and len(value) >= 2:
+                    value = value[1:-1].strip()
+                return value or None
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_settings_id(value: str | None) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
 _PRUSASLICER_CMD: list[str] | None = None
 
 
@@ -1195,6 +1243,7 @@ async def api_estimate(
     gcode = _run_prusaslicer(model_path, profiles)
 
     # parse G-code
+    preset_ids = _parse_preset_ids_from_gcode(gcode)
     filament_g = None
     filament_mm = None
     time_s = None
@@ -1260,12 +1309,34 @@ async def api_estimate(
             filename = Path(path).name
         except Exception:
             filename = str(path)
+
+        reported_id = preset_ids.get(kind)
+        if reported_id and isinstance(reported_id, str):
+            reported_id = reported_id.strip()
+
+        settings_key_map = {
+            "print": "print_settings_id",
+            "filament": "filament_settings_id",
+            "printer": "printer_settings_id",
+        }
+        expected_id = None
+        settings_key = settings_key_map.get(kind)
+        if settings_key:
+            expected_id = _extract_settings_id_from_profile(path, settings_key)
+
+        normalized_reported = _normalize_settings_id(reported_id)
+        normalized_expected = _normalize_settings_id(expected_id)
+        matches_expected = bool(normalized_reported and normalized_expected and normalized_reported == normalized_expected)
+
         return {
             "requested": info.get("requested"),
             "path": str(path),
             "filename": filename,
             "found": bool(info.get("found")),
             "is_default": not bool(info.get("found")),
+            "reported_id": reported_id,
+            "expected_id": expected_id,
+            "reported_matches_expected": matches_expected,
         }
 
     presets_used = {
@@ -1273,6 +1344,18 @@ async def api_estimate(
         "filament": _profile_summary("filament"),
         "printer": _profile_summary("printer"),
     }
+
+    if (
+        presets_used["print"].get("reported_id")
+        and presets_used["print"].get("expected_id")
+        and not presets_used["print"].get("reported_matches_expected")
+    ):
+        _LOG.warning(
+            "Preset stampa richiesto '%s' (file %s) ma G-code riporta print_settings_id '%s'",
+            presets_used["print"].get("requested"),
+            presets_used["print"].get("filename"),
+            presets_used["print"].get("reported_id"),
+        )
 
     return _no_cache({
         "filament_g": filament_g,
@@ -1288,6 +1371,11 @@ async def api_estimate(
         "preset_printer_used": presets_used["printer"]["filename"],
         "preset_filament_used": presets_used["filament"]["filename"],
         "preset_print_is_default": presets_used["print"]["is_default"],
+        "preset_print_reported_id": presets_used["print"].get("reported_id"),
+        "preset_print_expected_id": presets_used["print"].get("expected_id"),
+        "preset_print_matches": presets_used["print"].get("reported_matches_expected"),
+        "preset_printer_reported_id": presets_used["printer"].get("reported_id"),
+        "preset_filament_reported_id": presets_used["filament"].get("reported_id"),
         "presets_used": presets_used,
     })
 

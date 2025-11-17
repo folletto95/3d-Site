@@ -1571,16 +1571,6 @@ async def _modern_estimate(payload: dict) -> JSONResponse:
     response.pop("gcode", None)
 
     debug_payload: dict[str, object] = {}
-    prusa_debug: dict[str, object] = {}
-    if result.get("prusaslicer_cmd"):
-        prusa_debug["prusaslicer_cmd"] = result.get("prusaslicer_cmd")
-    if result.get("override_settings"):
-        prusa_debug["prusaslicer_overrides"] = result.get("override_settings")
-    if result.get("presets_used"):
-        prusa_debug["presets_used"] = result.get("presets_used")
-
-    if prusa_debug:
-        debug_payload.update(prusa_debug)
     if settings:
         debug_payload["settings"] = settings
     if inventory_context:

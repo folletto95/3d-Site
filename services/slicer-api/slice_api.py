@@ -1550,11 +1550,22 @@ async def _modern_estimate(payload: dict) -> JSONResponse:
     preset_filament = payload.get("preset_filament")
     preset_printer = payload.get("preset_printer")
 
+    missing_presets = [
+        name
+        for name, value in (
+            ("preset_print", preset_print),
+            ("preset_filament", preset_filament),
+            ("preset_printer", preset_printer),
+        )
+        if not value or not str(value).strip()
+    ]
+    if missing_presets:
+        raise HTTPException(
+            400,
+            f"Preset mancante dal payload: {', '.join(missing_presets)}. Seleziona un profilo nella UI.",
+        )
+
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
-    if not preset_print and settings:
-        preset_print = settings.get("profile") or settings.get("preset_print")
-    if not preset_printer and settings:
-        preset_printer = settings.get("printer_profile") or settings.get("preset_printer")
 
     profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
     result = _estimate_print_job(
@@ -1570,7 +1581,16 @@ async def _modern_estimate(payload: dict) -> JSONResponse:
     response = dict(result)
     response.pop("gcode", None)
 
-    debug_payload: dict[str, object] = {}
+    debug_payload: dict[str, object] = {
+        "presets": {
+            kind: {
+                "requested": profiles[kind].get("requested"),
+                "path": str(profiles[kind].get("path")),
+                "found": profiles[kind].get("found"),
+            }
+            for kind in ("print", "filament", "printer")
+        }
+    }
     if settings:
         debug_payload["settings"] = settings
     if inventory_context:

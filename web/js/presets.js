@@ -5,6 +5,7 @@ const PRESETS = {
   '': {
     machine: 'generic',
     profile: 'print.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.2,
     infill: 15,
@@ -15,6 +16,7 @@ const PRESETS = {
   x1c_standard_020: {
     machine: 'bambu_x1c',
     profile: 'x1c_standard_020.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.2,
     infill: 15,
@@ -25,6 +27,7 @@ const PRESETS = {
   x1c_quality_016: {
     machine: 'bambu_x1c',
     profile: 'x1c_quality_016.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.16,
     infill: 15,
@@ -35,6 +38,7 @@ const PRESETS = {
   x1c_fine_012: {
     machine: 'bambu_x1c',
     profile: 'x1c_fine_012.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.12,
     infill: 20,
@@ -45,6 +49,7 @@ const PRESETS = {
   x1c_draft_028: {
     machine: 'bambu_x1c',
     profile: 'x1c_draft_028.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.28,
     infill: 15,
@@ -55,6 +60,7 @@ const PRESETS = {
   x1c_strength_020: {
     machine: 'bambu_x1c',
     profile: 'x1c_strength_020.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.2,
     infill: 50,
@@ -65,6 +71,7 @@ const PRESETS = {
   x1c_lightning_020: {
     machine: 'bambu_x1c',
     profile: 'x1c_lightning_020.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.2,
     infill: 10,
@@ -75,6 +82,7 @@ const PRESETS = {
   x1c_ultrafine_008: {
     machine: 'bambu_x1c',
     profile: 'x1c_ultrafine_008.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.08,
     infill: 20,
@@ -108,6 +116,14 @@ export function getPresetProfileName(key) {
   const normalized = normalizePresetKey(key);
   if (!normalized) return null;
   return `${normalized}.ini`;
+}
+
+export function getPresetFilamentProfile(key) {
+  const preset = getPresetDefinition(key);
+  if (preset && preset.filament_profile) {
+    return preset.filament_profile;
+  }
+  return 'filament.ini';
 }
 
 export function getPresetPrinterProfile(key) {

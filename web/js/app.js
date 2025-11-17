@@ -163,7 +163,31 @@ async function handleEstimate(options = {}) {
 
   const presetSelect = document.getElementById('preset');
   const presetKey = presetSelect && presetSelect.value ? presetSelect.value : '';
+  if (!presetKey) {
+    if (!silent) {
+      alert('Seleziona un preset prima di calcolare la stima');
+    }
+    isEstimating = false;
+    estimateButton.disabled = false;
+    estimateButton.textContent = previousText || 'Stima';
+    if (outputElement) {
+      outputElement.innerHTML = '';
+    }
+    return null;
+  }
   const presetDefinition = getPresetDefinition(presetKey);
+  if (!presetDefinition) {
+    if (!silent) {
+      alert('Preset non valido, seleziona un profilo disponibile');
+    }
+    isEstimating = false;
+    estimateButton.disabled = false;
+    estimateButton.textContent = previousText || 'Stima';
+    if (outputElement) {
+      outputElement.innerHTML = '';
+    }
+    return null;
+  }
   const machineFromPreset = (presetDefinition && presetDefinition.machine) || state.selectedMachine || 'generic';
   const presetProfileName = getPresetProfileName(presetKey);
   const presetFilamentProfile = getPresetFilamentProfile(presetKey);

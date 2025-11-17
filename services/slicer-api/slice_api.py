@@ -1148,6 +1148,19 @@ def _resolve_profiles(
     return profiles
 
 
+def _build_profile_bundle(profiles: dict[str, dict[str, object]], temp_dir: str) -> str:
+    bundle_path = Path(temp_dir) / "profiles.ini"
+    with open(bundle_path, "w", encoding="utf-8") as out:
+        for kind in ("printer", "filament", "print"):
+            src = profiles[kind]["path"]
+            with open(src, "r", encoding="utf-8", errors="ignore") as handle:
+                content = handle.read().strip()
+            if content:
+                out.write(content)
+                out.write("\n\n")
+    return str(bundle_path)
+
+
 def _build_prusaslicer_args(
     base_cmd: list[str],
     input_path: str,
@@ -1156,28 +1169,62 @@ def _build_prusaslicer_args(
     *,
     override_settings: dict | None = None,
     set_args: list[str] | None = None,
+    profile_bundle: str | None = None,
 ) -> list[str]:
     printer_profile = profiles["printer"]["path"]
     filament_profile = profiles["filament"]["path"]
     print_profile = profiles["print"]["path"]
 
+    cli_names = {
+        "print": _profile_cli_name("print", print_profile),
+        "filament": _profile_cli_name("filament", filament_profile),
+        "printer": _profile_cli_name("printer", printer_profile),
+    }
+
     if set_args is None:
         set_args, _ = _build_override_set_args(override_settings)
 
-    args = list(base_cmd) + [
-        "--export-gcode",
-        "--load",
-        str(printer_profile),
-        "--load",
-        str(filament_profile),
-        "--load",
-        str(print_profile),
-        "--output",
-        output_path,
-    ]
+    selection_set_args: list[str] = []
+    for key, kind in (
+        ("print_settings_id", "print"),
+        ("filament_settings_id", "filament"),
+        ("printer_settings_id", "printer"),
+    ):
+        if cli_names[kind]:
+            selection_set_args.extend(["--set", f"{key}={cli_names[kind]}"])
 
-    if set_args:
-        args.extend(set_args)
+    args = list(base_cmd) + ["--export-gcode"]
+
+    load_targets = [profile_bundle] if profile_bundle else [printer_profile, filament_profile, print_profile]
+    for target in load_targets:
+        args.extend(["--load", str(target)])
+
+    # Persist preset selection + overrides to a temporary config file instead of
+    # passing unsupported CLI flags like --set (see PrusaSlicer CLI docs).
+    override_config_lines: list[str] = []
+    for group in (selection_set_args, set_args):
+        if not group:
+            continue
+        for i in range(0, len(group), 2):
+            if i + 1 >= len(group):
+                continue
+            flag, assignment = group[i], group[i + 1]
+            if flag != "--set" or "=" not in assignment:
+                continue
+            key, value = assignment.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key and value:
+                override_config_lines.append(f"{key} = {value}")
+
+    if override_config_lines:
+        overrides_path = Path(output_path).with_suffix(".override.ini")
+        with open(overrides_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(override_config_lines))
+            handle.write("\n")
+        args.extend(["--load", str(overrides_path)])
+
+    args.extend(["--output", output_path])
 
     args.append(input_path)
 
@@ -1249,6 +1296,7 @@ def _invoke_prusaslicer(
     profiles: dict[str, dict[str, object]],
     *,
     override_settings: dict | None = None,
+    profile_bundle: str | None = None,
 ) -> tuple[list[str], dict[str, float]]:
     set_args, applied_overrides = _build_override_set_args(override_settings)
     try:
@@ -1262,6 +1310,7 @@ def _invoke_prusaslicer(
         profiles,
         override_settings=override_settings,
         set_args=set_args,
+        profile_bundle=profile_bundle,
     )
 
     try:
@@ -1303,11 +1352,13 @@ def _run_prusaslicer(
             profiles["filament"].get("requested"),
             profiles["printer"].get("requested"),
         )
+        bundle_path = _build_profile_bundle(profiles, td)
         executed_cmd, applied_overrides = _invoke_prusaslicer(
             model_path,
             out_path,
             profiles,
             override_settings=override_settings,
+            profile_bundle=bundle_path,
         )
 
         if not os.path.exists(out_path):
@@ -1429,6 +1480,29 @@ def _estimate_print_job(
         "filament": _profile_summary("filament"),
         "printer": _profile_summary("printer"),
     }
+
+    mismatches: list[str] = []
+
+    for kind, label in (
+        ("print", "stampa"),
+        ("filament", "filamento"),
+        ("printer", "stampante"),
+    ):
+        expected = presets_used[kind].get("expected_id")
+        reported = presets_used[kind].get("reported_id")
+        matches_expected = presets_used[kind].get("reported_matches_expected")
+        if expected and reported and matches_expected is False:
+            mismatches.append(
+                f"Preset {label} richiesto '{presets_used[kind].get('requested') or expected}'"
+                f" ma il G-code riporta {kind}_settings_id='{reported}'"
+            )
+
+    if mismatches:
+        raise HTTPException(
+            500,
+            " ; ".join(mismatches)
+            + ". Controlla che i profili siano caricati e passati correttamente a PrusaSlicer.",
+        )
 
     if (
         presets_used["print"].get("reported_id")
@@ -1642,11 +1716,13 @@ async def slice_model(
             f.write(await model.read())
         out_path = os.path.join(td, "out.gcode")
         profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
+        bundle_path = _build_profile_bundle(profiles, td)
         _invoke_prusaslicer(
             in_path,
             out_path,
             profiles,
             override_settings=None,
+            profile_bundle=bundle_path,
         )
 
         if not os.path.exists(out_path):

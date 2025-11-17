@@ -1148,6 +1148,19 @@ def _resolve_profiles(
     return profiles
 
 
+def _build_profile_bundle(profiles: dict[str, dict[str, object]], temp_dir: str) -> str:
+    bundle_path = Path(temp_dir) / "profiles.ini"
+    with open(bundle_path, "w", encoding="utf-8") as out:
+        for kind in ("printer", "filament", "print"):
+            src = profiles[kind]["path"]
+            with open(src, "r", encoding="utf-8", errors="ignore") as handle:
+                content = handle.read().strip()
+            if content:
+                out.write(content)
+                out.write("\n\n")
+    return str(bundle_path)
+
+
 def _build_prusaslicer_args(
     base_cmd: list[str],
     input_path: str,
@@ -1156,6 +1169,7 @@ def _build_prusaslicer_args(
     *,
     override_settings: dict | None = None,
     set_args: list[str] | None = None,
+    profile_bundle: str | None = None,
 ) -> list[str]:
     printer_profile = profiles["printer"]["path"]
     filament_profile = profiles["filament"]["path"]
@@ -1164,17 +1178,13 @@ def _build_prusaslicer_args(
     if set_args is None:
         set_args, _ = _build_override_set_args(override_settings)
 
-    args = list(base_cmd) + [
-        "--export-gcode",
-        "--load",
-        str(printer_profile),
-        "--load",
-        str(filament_profile),
-        "--load",
-        str(print_profile),
-        "--output",
-        output_path,
-    ]
+    args = list(base_cmd) + ["--export-gcode"]
+
+    load_targets = [profile_bundle] if profile_bundle else [printer_profile, filament_profile, print_profile]
+    for target in load_targets:
+        args.extend(["--load", str(target)])
+
+    args.extend(["--output", output_path])
 
     if set_args:
         args.extend(set_args)
@@ -1249,6 +1259,7 @@ def _invoke_prusaslicer(
     profiles: dict[str, dict[str, object]],
     *,
     override_settings: dict | None = None,
+    profile_bundle: str | None = None,
 ) -> tuple[list[str], dict[str, float]]:
     set_args, applied_overrides = _build_override_set_args(override_settings)
     try:
@@ -1262,6 +1273,7 @@ def _invoke_prusaslicer(
         profiles,
         override_settings=override_settings,
         set_args=set_args,
+        profile_bundle=profile_bundle,
     )
 
     try:
@@ -1303,11 +1315,13 @@ def _run_prusaslicer(
             profiles["filament"].get("requested"),
             profiles["printer"].get("requested"),
         )
+        bundle_path = _build_profile_bundle(profiles, td)
         executed_cmd, applied_overrides = _invoke_prusaslicer(
             model_path,
             out_path,
             profiles,
             override_settings=override_settings,
+            profile_bundle=bundle_path,
         )
 
         if not os.path.exists(out_path):
@@ -1430,6 +1444,29 @@ def _estimate_print_job(
         "printer": _profile_summary("printer"),
     }
 
+    mismatches: list[str] = []
+
+    for kind, label in (
+        ("print", "stampa"),
+        ("filament", "filamento"),
+        ("printer", "stampante"),
+    ):
+        expected = presets_used[kind].get("expected_id")
+        reported = presets_used[kind].get("reported_id")
+        matches_expected = presets_used[kind].get("reported_matches_expected")
+        if expected and reported and matches_expected is False:
+            mismatches.append(
+                f"Preset {label} richiesto '{presets_used[kind].get('requested') or expected}'"
+                f" ma il G-code riporta {kind}_settings_id='{reported}'"
+            )
+
+    if mismatches:
+        raise HTTPException(
+            500,
+            " ; ".join(mismatches)
+            + ". Controlla che i profili siano caricati e passati correttamente a PrusaSlicer.",
+        )
+
     if (
         presets_used["print"].get("reported_id")
         and presets_used["print"].get("expected_id")
@@ -1550,11 +1587,22 @@ async def _modern_estimate(payload: dict) -> JSONResponse:
     preset_filament = payload.get("preset_filament")
     preset_printer = payload.get("preset_printer")
 
+    missing_presets = [
+        name
+        for name, value in (
+            ("preset_print", preset_print),
+            ("preset_filament", preset_filament),
+            ("preset_printer", preset_printer),
+        )
+        if not value or not str(value).strip()
+    ]
+    if missing_presets:
+        raise HTTPException(
+            400,
+            f"Preset mancante dal payload: {', '.join(missing_presets)}. Seleziona un profilo nella UI.",
+        )
+
     settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
-    if not preset_print and settings:
-        preset_print = settings.get("profile") or settings.get("preset_print")
-    if not preset_printer and settings:
-        preset_printer = settings.get("printer_profile") or settings.get("preset_printer")
 
     profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
     result = _estimate_print_job(
@@ -1570,7 +1618,16 @@ async def _modern_estimate(payload: dict) -> JSONResponse:
     response = dict(result)
     response.pop("gcode", None)
 
-    debug_payload: dict[str, object] = {}
+    debug_payload: dict[str, object] = {
+        "presets": {
+            kind: {
+                "requested": profiles[kind].get("requested"),
+                "path": str(profiles[kind].get("path")),
+                "found": profiles[kind].get("found"),
+            }
+            for kind in ("print", "filament", "printer")
+        }
+    }
     if settings:
         debug_payload["settings"] = settings
     if inventory_context:
@@ -1622,11 +1679,13 @@ async def slice_model(
             f.write(await model.read())
         out_path = os.path.join(td, "out.gcode")
         profiles = _resolve_profiles(preset_print, preset_filament, preset_printer)
+        bundle_path = _build_profile_bundle(profiles, td)
         _invoke_prusaslicer(
             in_path,
             out_path,
             profiles,
             override_settings=None,
+            profile_bundle=bundle_path,
         )
 
         if not os.path.exists(out_path):

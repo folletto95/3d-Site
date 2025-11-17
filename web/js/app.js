@@ -177,9 +177,9 @@ async function handleEstimate(options = {}) {
     preset_printer: presetPrinterProfile || undefined,
   };
 
-  const activeSettings = collectActiveSettings();
-  if (activeSettings) {
-    payload.settings = activeSettings;
+  const manualSettings = collectManualOverrides(presetDefinition);
+  if (manualSettings) {
+    payload.settings = manualSettings;
   }
 
   if (presetDefinition && presetDefinition.machine && machineFromPreset !== state.selectedMachine) {
@@ -245,9 +245,9 @@ function setViewerStatus(message) {
   }
 }
 
-function collectActiveSettings() {
-  const settings = {};
-  let hasSettings = false;
+function collectManualOverrides(presetDefinition) {
+  const overrides = {};
+  let hasOverrides = false;
 
   const numericFields = [
     { id: 'layer_h', key: 'layer_h' },
@@ -256,6 +256,8 @@ function collectActiveSettings() {
     { id: 'print_speed', key: 'print_speed' },
     { id: 'travel_speed', key: 'travel_speed' },
   ];
+
+  const tolerance = 1e-6;
 
   for (const field of numericFields) {
     const element = document.getElementById(field.id);
@@ -270,11 +272,19 @@ function collectActiveSettings() {
     if (!Number.isFinite(value)) {
       continue;
     }
-    settings[field.key] = value;
-    hasSettings = true;
+
+    const presetValue =
+      presetDefinition && typeof presetDefinition[field.key] === 'number'
+        ? Number(presetDefinition[field.key])
+        : null;
+
+    if (presetValue == null || Math.abs(value - presetValue) > tolerance) {
+      overrides[field.key] = value;
+      hasOverrides = true;
+    }
   }
 
-  return hasSettings ? settings : null;
+  return hasOverrides ? overrides : null;
 }
 
 async function parseJson(response) {
@@ -1002,7 +1012,7 @@ function renderEstimateDebug(debug) {
     return '';
   }
   const sections = [];
-  const prusaSection = renderPrusaDebug(debug.prusaslicer_cmd, debug.prusaslicer_overrides, debug.presets_used);
+  const prusaSection = renderPrusaDebug(debug.prusaslicer_cmd, debug.prusaslicer_overrides);
   if (prusaSection) {
     sections.push(prusaSection);
   }
@@ -1021,13 +1031,10 @@ function renderEstimateDebug(debug) {
   return `<details class="estimate-debug"><summary>Debug slicing</summary>${body}</details>`;
 }
 
-function renderPrusaDebug(cmd, overrides, presetsUsed) {
+function renderPrusaDebug(cmd, overrides) {
   const hasCmd = Array.isArray(cmd) && cmd.length;
-  const normalizedOverrides = normalizePrusaOverrides(overrides);
-  const normalizedPresets = normalizePresetsUsed(presetsUsed);
-  const hasOverrides = normalizedOverrides.length > 0;
-  const hasPresets = normalizedPresets != null;
-  if (!hasCmd && !hasOverrides && !hasPresets) {
+  const hasOverrides = Array.isArray(overrides) && overrides.length;
+  if (!hasCmd && !hasOverrides) {
     return '';
   }
   const parts = [];
@@ -1036,37 +1043,12 @@ function renderPrusaDebug(cmd, overrides, presetsUsed) {
     parts.push(`<div>Comando PrusaSlicer: <code>${rendered}</code></div>`);
   }
   if (hasOverrides) {
-    const renderedOverrides = normalizedOverrides
+    const renderedOverrides = overrides
       .map((entry) => `${escapeHtml(entry.key)}=${escapeHtml(formatNumber(entry.value, 3))}`)
       .join(', ');
     parts.push(`<div>Override applicati: <code>${renderedOverrides}</code></div>`);
   }
-  if (hasPresets) {
-    const usage = renderPresetUsage(normalizedPresets);
-    if (usage) {
-      parts.push(usage);
-    }
-  }
   return `<div class="estimate-debug-block">${parts.join('<br>')}</div>`;
-}
-
-function normalizePrusaOverrides(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw
-      .map((entry) => {
-        if (!entry || typeof entry !== 'object') return null;
-        if (!entry.key || typeof entry.value !== 'number') return null;
-        return { key: String(entry.key), value: Number(entry.value) };
-      })
-      .filter(Boolean);
-  }
-  if (typeof raw === 'object') {
-    return Object.entries(raw)
-      .map(([key, value]) => ({ key, value: Number(value) }))
-      .filter((entry) => entry.key && Number.isFinite(entry.value));
-  }
-  return [];
 }
 
 function renderMotionDebug(motion) {

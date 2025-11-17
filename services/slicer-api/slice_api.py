@@ -1430,6 +1430,29 @@ def _estimate_print_job(
         "printer": _profile_summary("printer"),
     }
 
+    mismatches: list[str] = []
+
+    for kind, label in (
+        ("print", "stampa"),
+        ("filament", "filamento"),
+        ("printer", "stampante"),
+    ):
+        expected = presets_used[kind].get("expected_id")
+        reported = presets_used[kind].get("reported_id")
+        matches_expected = presets_used[kind].get("reported_matches_expected")
+        if expected and reported and matches_expected is False:
+            mismatches.append(
+                f"Preset {label} richiesto '{presets_used[kind].get('requested') or expected}'"
+                f" ma il G-code riporta {kind}_settings_id='{reported}'"
+            )
+
+    if mismatches:
+        raise HTTPException(
+            500,
+            " ; ".join(mismatches)
+            + ". Controlla che i profili siano caricati e passati correttamente a PrusaSlicer.",
+        )
+
     if (
         presets_used["print"].get("reported_id")
         and presets_used["print"].get("expected_id")

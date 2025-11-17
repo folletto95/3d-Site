@@ -568,7 +568,12 @@ def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
 
 # ---------- Inventory ----------
 async def _fetch_inventory_items() -> list[dict]:
-    verify = not (os.getenv("SPOOLMAN_SKIP_TLS_VERIFY", "").lower() in ("1", "true", "yes"))
+    # Per compatibilità con installazioni Spoolman con certificati self-signed,
+    # l'impostazione predefinita è DISABILITARE la verifica TLS. Imposta
+    # SPOOLMAN_SKIP_TLS_VERIFY=0 se vuoi forzare la verifica.
+    skip_tls_env = os.getenv("SPOOLMAN_SKIP_TLS_VERIFY")
+    skip_tls_verify = True if skip_tls_env is None else skip_tls_env.lower() in ("1", "true", "yes")
+    verify = not skip_tls_verify
     token = os.getenv("SPOOLMAN_TOKEN")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
@@ -1571,6 +1576,16 @@ async def _modern_estimate(payload: dict) -> JSONResponse:
     response.pop("gcode", None)
 
     debug_payload: dict[str, object] = {}
+    prusa_debug: dict[str, object] = {}
+    if result.get("prusaslicer_cmd"):
+        prusa_debug["prusaslicer_cmd"] = result.get("prusaslicer_cmd")
+    if result.get("override_settings"):
+        prusa_debug["prusaslicer_overrides"] = result.get("override_settings")
+    if result.get("presets_used"):
+        prusa_debug["presets_used"] = result.get("presets_used")
+
+    if prusa_debug:
+        debug_payload.update(prusa_debug)
     if settings:
         debug_payload["settings"] = settings
     if inventory_context:

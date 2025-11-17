@@ -322,24 +322,18 @@ def _profile_candidates(kind: str, preset: str) -> list[Path]:
 
 
 def _resolve_profile_path(kind: str, preset: str | None) -> tuple[Path, bool]:
-    default_map = {
-        "print": DEFAULT_PRINT_PROFILE,
-        "filament": DEFAULT_FILAMENT_PROFILE,
-        "printer": DEFAULT_PRINTER_PROFILE,
-    }
-    default = default_map.get(kind, DEFAULT_PRINT_PROFILE)
-    if not preset:
-        return default, False
+    if not preset or not str(preset).strip():
+        raise HTTPException(400, f"preset_{kind} mancante: passalo dal frontend")
+
     text = str(preset).strip()
-    if not text:
-        return default, False
     for candidate in _profile_candidates(kind, text):
         try:
             if candidate.is_file():
                 return candidate.resolve(), True
         except Exception:
             continue
-    return default, False
+
+    raise HTTPException(400, f"Profilo {kind} '{text}' non trovato nel container")
 
 
 def _slug(value: str | None) -> str:
@@ -574,7 +568,12 @@ def _price_per_kg_from_spool(spool: dict, filament: dict) -> float | None:
 
 # ---------- Inventory ----------
 async def _fetch_inventory_items() -> list[dict]:
-    verify = not (os.getenv("SPOOLMAN_SKIP_TLS_VERIFY", "").lower() in ("1", "true", "yes"))
+    # Per compatibilità con installazioni Spoolman con certificati self-signed,
+    # l'impostazione predefinita è DISABILITARE la verifica TLS. Imposta
+    # SPOOLMAN_SKIP_TLS_VERIFY=0 se vuoi forzare la verifica.
+    skip_tls_env = os.getenv("SPOOLMAN_SKIP_TLS_VERIFY")
+    skip_tls_verify = True if skip_tls_env is None else skip_tls_env.lower() in ("1", "true", "yes")
+    verify = not skip_tls_verify
     token = os.getenv("SPOOLMAN_TOKEN")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
@@ -1151,23 +1150,6 @@ def _resolve_profiles(
         "found": print_found,
     }
 
-    if profiles["print"]["requested"] and not print_found:
-        raise HTTPException(400, f"Profilo di stampa '{profiles['print']['requested']}' non trovato.")
-
-    if profiles["printer"]["requested"] and not printer_found:
-        _LOG.warning(
-            "Preset stampante '%s' non trovato, uso profilo di default %s",
-            profiles["printer"]["requested"],
-            printer_profile,
-        )
-
-    if profiles["filament"]["requested"] and not filament_found:
-        _LOG.warning(
-            "Preset filamento '%s' non trovato, uso profilo di default %s",
-            profiles["filament"]["requested"],
-            filament_profile,
-        )
-
     return profiles
 
 
@@ -1176,13 +1158,18 @@ def _build_prusaslicer_args(
     input_path: str,
     output_path: str,
     profiles: dict[str, dict[str, object]],
+    *,
+    override_settings: dict | None = None,
+    set_args: list[str] | None = None,
 ) -> list[str]:
     printer_profile = profiles["printer"]["path"]
     filament_profile = profiles["filament"]["path"]
     print_profile = profiles["print"]["path"]
 
+    if set_args is None:
+        set_args, _ = _build_override_set_args(override_settings)
+
     args = list(base_cmd) + [
-        "--no-gui",
         "--export-gcode",
         "--load",
         str(printer_profile),
@@ -1194,6 +1181,9 @@ def _build_prusaslicer_args(
         output_path,
     ]
 
+    if set_args:
+        args.extend(set_args)
+
     args.append(input_path)
 
     return _sanitize_prusaslicer_args(args)
@@ -1204,7 +1194,8 @@ def _sanitize_prusaslicer_args(args: list[str]) -> list[str]:
 
     cleaned: list[str] = []
     for item in args:
-        if item == "--no-gui":
+        if item in {"--no-gui", "--nogui"}:
+            # Some builds do not recognize the GUI toggle; drop it to avoid failures.
             continue
         cleaned.append(item)
     return cleaned
@@ -1216,11 +1207,55 @@ def _praslicer_env() -> dict[str, str]:
     return env
 
 
+def _fmt_set_value(value: float) -> str:
+    text = f"{value:.4f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _build_override_set_args(settings: dict | None) -> tuple[list[str], dict[str, float]]:
+    if not settings:
+        return [], {}
+
+    applied: dict[str, float] = {}
+    args: list[str] = []
+
+    def _add(config_keys: list[str], src_key: str):
+        raw = settings.get(src_key)
+        val = _to_float(raw, None)
+        if val is None:
+            return
+        for key in config_keys:
+            applied[key] = val
+            args.extend(["--set", f"{key}={_fmt_set_value(val)}"])
+
+    _add(["layer_height"], "layer_h")
+    _add(["infill_density"], "infill")
+    _add(["nozzle_diameter"], "nozzle")
+    _add(["travel_speed"], "travel_speed")
+    _add(
+        [
+            "perimeter_speed",
+            "external_perimeter_speed",
+            "infill_speed",
+            "solid_infill_speed",
+            "top_solid_infill_speed",
+        ],
+        "print_speed",
+    )
+
+    return args, applied
+
+
 def _invoke_prusaslicer(
     input_path: str,
     output_path: str,
     profiles: dict[str, dict[str, object]],
-) -> None:
+    *,
+    override_settings: dict | None = None,
+) -> tuple[list[str], dict[str, float]]:
+    set_args, applied_overrides = _build_override_set_args(override_settings)
     try:
         base_cmd = _resolve_prusaslicer_cmd()
     except FileNotFoundError:
@@ -1230,6 +1265,8 @@ def _invoke_prusaslicer(
         input_path,
         output_path,
         profiles,
+        override_settings=override_settings,
+        set_args=set_args,
     )
 
     try:
@@ -1255,10 +1292,14 @@ def _invoke_prusaslicer(
         msg = res.stderr or res.stdout or "Errore sconosciuto"
         raise HTTPException(500, f"Errore PrusaSlicer: {msg[:600]}")
 
+    return args, applied_overrides
+
 def _run_prusaslicer(
     model_path: str,
     profiles: dict[str, dict[str, object]],
-) -> str:
+    *,
+    override_settings: dict | None = None,
+) -> tuple[str, list[str], dict[str, float]]:
     with tempfile.TemporaryDirectory() as td:
         out_path = _build_gcode_output_path(
             td,
@@ -1267,17 +1308,18 @@ def _run_prusaslicer(
             profiles["filament"].get("requested"),
             profiles["printer"].get("requested"),
         )
-        _invoke_prusaslicer(
+        executed_cmd, applied_overrides = _invoke_prusaslicer(
             model_path,
             out_path,
             profiles,
+            override_settings=override_settings,
         )
 
         if not os.path.exists(out_path):
             raise HTTPException(500, "G-code non generato.")
 
         with open(out_path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
+            return f.read(), executed_cmd, applied_overrides
 
 def _resolve_model_path(viewer_url: str | None) -> str | None:
     if not viewer_url:
@@ -1299,8 +1341,13 @@ def _estimate_print_job(
     diameter: str | float | None,
     price_per_kg: float | None,
     rate: float | None,
+    override_settings: dict | None = None,
 ) -> dict:
-    gcode = _run_prusaslicer(model_path, profiles)
+    gcode, prusaslicer_cmd, applied_overrides = _run_prusaslicer(
+        model_path,
+        profiles,
+        override_settings=override_settings,
+    )
 
     preset_ids = _parse_preset_ids_from_gcode(gcode)
     filament_g = None
@@ -1421,6 +1468,8 @@ def _estimate_print_job(
         "preset_printer_reported_id": presets_used["printer"].get("reported_id"),
         "preset_filament_reported_id": presets_used["filament"].get("reported_id"),
         "presets_used": presets_used,
+        "prusaslicer_cmd": prusaslicer_cmd,
+        "override_settings": applied_overrides or None,
     }
 
 @app.post("/api/estimate")
@@ -1464,6 +1513,7 @@ async def api_estimate(
             diameter=diameter,
             price_per_kg=price_per_kg,
             rate=hourly_rate,
+            override_settings=None,
         )
     finally:
         if tmp_path:
@@ -1519,12 +1569,23 @@ async def _modern_estimate(payload: dict) -> JSONResponse:
         diameter=diameter,
         price_per_kg=price_per_kg,
         rate=hourly_rate,
+        override_settings=settings,
     )
 
     response = dict(result)
     response.pop("gcode", None)
 
     debug_payload: dict[str, object] = {}
+    prusa_debug: dict[str, object] = {}
+    if result.get("prusaslicer_cmd"):
+        prusa_debug["prusaslicer_cmd"] = result.get("prusaslicer_cmd")
+    if result.get("override_settings"):
+        prusa_debug["prusaslicer_overrides"] = result.get("override_settings")
+    if result.get("presets_used"):
+        prusa_debug["presets_used"] = result.get("presets_used")
+
+    if prusa_debug:
+        debug_payload.update(prusa_debug)
     if settings:
         debug_payload["settings"] = settings
     if inventory_context:
@@ -1580,6 +1641,7 @@ async def slice_model(
             in_path,
             out_path,
             profiles,
+            override_settings=None,
         )
 
         if not os.path.exists(out_path):

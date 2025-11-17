@@ -2,19 +2,10 @@ import { state, setSelectedMachine } from './state.js';
 
 const DEFAULT_PRESET_KEY = 'x1c_standard_020';
 const PRESETS = {
-  '': {
-    machine: 'generic',
-    profile: 'print.ini',
-    printer_profile: 'printer.ini',
-    layer_h: 0.2,
-    infill: 15,
-    nozzle: 0.4,
-    print_speed: 60,
-    travel_speed: 150,
-  },
   x1c_standard_020: {
     machine: 'bambu_x1c',
     profile: 'x1c_standard_020.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.2,
     infill: 15,
@@ -25,6 +16,7 @@ const PRESETS = {
   x1c_quality_016: {
     machine: 'bambu_x1c',
     profile: 'x1c_quality_016.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.16,
     infill: 15,
@@ -35,6 +27,7 @@ const PRESETS = {
   x1c_fine_012: {
     machine: 'bambu_x1c',
     profile: 'x1c_fine_012.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.12,
     infill: 20,
@@ -45,6 +38,7 @@ const PRESETS = {
   x1c_draft_028: {
     machine: 'bambu_x1c',
     profile: 'x1c_draft_028.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.28,
     infill: 15,
@@ -55,6 +49,7 @@ const PRESETS = {
   x1c_strength_020: {
     machine: 'bambu_x1c',
     profile: 'x1c_strength_020.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.2,
     infill: 50,
@@ -65,6 +60,7 @@ const PRESETS = {
   x1c_lightning_020: {
     machine: 'bambu_x1c',
     profile: 'x1c_lightning_020.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.2,
     infill: 10,
@@ -75,6 +71,7 @@ const PRESETS = {
   x1c_ultrafine_008: {
     machine: 'bambu_x1c',
     profile: 'x1c_ultrafine_008.ini',
+    filament_profile: 'filament.ini',
     printer_profile: 'printer.ini',
     layer_h: 0.08,
     infill: 20,
@@ -105,9 +102,15 @@ export function getPresetProfileName(key) {
   if (preset && preset.profile) {
     return preset.profile;
   }
-  const normalized = normalizePresetKey(key);
-  if (!normalized) return null;
-  return `${normalized}.ini`;
+  return null;
+}
+
+export function getPresetFilamentProfile(key) {
+  const preset = getPresetDefinition(key);
+  if (preset && preset.filament_profile) {
+    return preset.filament_profile;
+  }
+  return null;
 }
 
 export function getPresetPrinterProfile(key) {
@@ -115,24 +118,36 @@ export function getPresetPrinterProfile(key) {
   if (preset && preset.printer_profile) {
     return preset.printer_profile;
   }
-  return 'printer.ini';
+  return null;
 }
 
 export function initPresets(selectId) {
   const select = document.getElementById(selectId);
   if (!select) return;
-  select.addEventListener('change', () => applyPreset(select.value, { reason: 'user' }));
+  select.addEventListener('change', () => safeApplyPreset(select.value, { reason: 'user' }));
   if (!state.selectedMachine || state.selectedMachine === 'generic') {
     select.value = DEFAULT_PRESET_KEY;
-    applyPreset(DEFAULT_PRESET_KEY, { reason: 'init' });
+    safeApplyPreset(DEFAULT_PRESET_KEY, { reason: 'init' });
   } else {
-    applyPreset(select.value, { reason: 'init' });
+    safeApplyPreset(select.value, { reason: 'init' });
+  }
+}
+
+function safeApplyPreset(key, options = {}) {
+  try {
+    applyPreset(key, options);
+  } catch (error) {
+    console.error('Impossibile applicare il preset', error);
+    alert('Preset non valido: seleziona un preset di stampa valido.');
   }
 }
 
 export function applyPreset(key, options = {}) {
   const normalizedKey = normalizePresetKey(key);
-  const preset = getPresetDefinition(normalizedKey) || PRESETS[''];
+  const preset = getPresetDefinition(normalizedKey);
+  if (!preset) {
+    throw new Error('Preset non valido o mancante');
+  }
   setSelectedMachine(preset.machine);
   setValue('layer_h', preset.layer_h != null ? preset.layer_h.toFixed(2) : undefined);
   setValue('infill', preset.infill != null ? String(preset.infill) : undefined);

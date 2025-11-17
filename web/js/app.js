@@ -510,16 +510,10 @@ function normalizeEstimateResponse(data, selectedItem) {
   const presetPrintDefault = determinePresetDefault(source, presetsUsed, 'print');
 
   const prusaCmd = normalizePrusaslicerCmd(source.prusaslicer_cmd);
-  const prusaOverrides = normalizePrusaOverrides(source.override_settings);
   const debug = normalizeEstimateDebug(source.debug);
-  if (prusaCmd || prusaOverrides) {
+  if (prusaCmd) {
     const enriched = debug && typeof debug === 'object' ? debug : {};
-    if (prusaCmd) {
-      enriched.prusaslicer_cmd = prusaCmd;
-    }
-    if (prusaOverrides) {
-      enriched.prusaslicer_overrides = prusaOverrides;
-    }
+    enriched.prusaslicer_cmd = prusaCmd;
     return {
       time_s: toNumber(source.time_s),
       filament_g: toNumber(source.filament_g),
@@ -790,16 +784,6 @@ function normalizePrusaslicerCmd(raw) {
   return tokens.length ? tokens : null;
 }
 
-function normalizePrusaOverrides(raw) {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-  const overrides = Object.entries(raw)
-    .map(([key, value]) => ({ key: safeString(key), value: toNumber(value) }))
-    .filter((entry) => entry.key && entry.value != null);
-  return overrides.length ? overrides : null;
-}
-
 function normalizeCuraDebug(raw) {
   if (!raw || typeof raw !== 'object') {
     return null;
@@ -1012,7 +996,7 @@ function renderEstimateDebug(debug) {
     return '';
   }
   const sections = [];
-  const prusaSection = renderPrusaDebug(debug.prusaslicer_cmd, debug.prusaslicer_overrides);
+  const prusaSection = renderPrusaDebug(debug.prusaslicer_cmd);
   if (prusaSection) {
     sections.push(prusaSection);
   }
@@ -1031,24 +1015,12 @@ function renderEstimateDebug(debug) {
   return `<details class="estimate-debug"><summary>Debug slicing</summary>${body}</details>`;
 }
 
-function renderPrusaDebug(cmd, overrides) {
-  const hasCmd = Array.isArray(cmd) && cmd.length;
-  const hasOverrides = Array.isArray(overrides) && overrides.length;
-  if (!hasCmd && !hasOverrides) {
+function renderPrusaDebug(cmd) {
+  if (!Array.isArray(cmd) || !cmd.length) {
     return '';
   }
-  const parts = [];
-  if (hasCmd) {
-    const rendered = escapeHtml(cmd.join(' '));
-    parts.push(`<div>Comando PrusaSlicer: <code>${rendered}</code></div>`);
-  }
-  if (hasOverrides) {
-    const renderedOverrides = overrides
-      .map((entry) => `${escapeHtml(entry.key)}=${escapeHtml(formatNumber(entry.value, 3))}`)
-      .join(', ');
-    parts.push(`<div>Override applicati: <code>${renderedOverrides}</code></div>`);
-  }
-  return `<div class="estimate-debug-block">${parts.join('<br>')}</div>`;
+  const rendered = escapeHtml(cmd.join(' '));
+  return `<div class="estimate-debug-block">Comando PrusaSlicer: <code>${rendered}</code></div>`;
 }
 
 function renderMotionDebug(motion) {

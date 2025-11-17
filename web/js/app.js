@@ -1,5 +1,5 @@
 import { initPalette } from './palette.js';
-import { initPresets, getPresetDefinition, getPresetProfileName, getPresetPrinterProfile } from './presets.js';
+import { initPresets, getPresetDefinition, getPresetProfileName, getPresetFilamentProfile, getPresetPrinterProfile } from './presets.js';
 import { state, getSelectedInventoryItem, setSelectedMachine } from './state.js';
 import { resetViewer, showViewer } from './viewer.js';
 import { apiFetch, getApiBase } from './utils/api.js';
@@ -19,6 +19,15 @@ initPresets('preset');
 setupViewerInteractions();
 setupFileInputs();
 setupWizard();
+
+function getSelectedPresetLabel() {
+  const select = document.getElementById('preset');
+  if (!select) {
+    return '';
+  }
+  const option = select.options[select.selectedIndex];
+  return (option && option.text) || select.value || '';
+}
 
 if (fetchButton) {
   fetchButton.addEventListener('click', handleFetchFromUrl);
@@ -157,18 +166,20 @@ async function handleEstimate(options = {}) {
   const presetDefinition = getPresetDefinition(presetKey);
   const machineFromPreset = (presetDefinition && presetDefinition.machine) || state.selectedMachine || 'generic';
   const presetProfileName = getPresetProfileName(presetKey);
+  const presetFilamentProfile = getPresetFilamentProfile(presetKey);
   const presetPrinterProfile = getPresetPrinterProfile(presetKey);
   const payload = {
     viewer_url: state.currentViewerUrl,
     inventory_key: state.selectedKey,
     machine: machineFromPreset,
     preset_print: presetProfileName || undefined,
+    preset_filament: presetFilamentProfile || undefined,
     preset_printer: presetPrinterProfile || undefined,
   };
 
-  const manualSettings = collectManualOverrides(presetDefinition);
-  if (manualSettings) {
-    payload.settings = manualSettings;
+  const activeSettings = collectActiveSettings();
+  if (activeSettings) {
+    payload.settings = activeSettings;
   }
 
   if (presetDefinition && presetDefinition.machine && machineFromPreset !== state.selectedMachine) {
@@ -185,48 +196,29 @@ async function handleEstimate(options = {}) {
       const costFilament = formatCurrency(data.cost_filament, currency);
       const costMachine = formatCurrency(data.cost_machine, currency);
       const totalCost = formatCurrency(data.total, currency);
-      const presetUsed = data && data.preset_print_used ? String(data.preset_print_used) : null;
-      const presetDefault = Boolean(data && data.preset_print_is_default);
-      const presetReportedId = data && data.preset_print_reported_id ? String(data.preset_print_reported_id) : null;
-      const presetExpectedId = data && data.preset_print_expected_id ? String(data.preset_print_expected_id) : null;
-      const presetMatch = typeof (data && data.preset_print_matches) === 'boolean' ? Boolean(data.preset_print_matches) : null;
+      const selectedPresetLabel = getSelectedPresetLabel();
+      const presetUsageHtml = renderPresetUsage(data && data.presets_used);
       let html = `
         Tempo: <b>${minutes != null ? `${minutes} min` : 'n/d'}</b> — Filamento: <b>${filament != null ? `${filament} g` : 'n/d'}</b><br>
         Costo filamento: <b>${costFilament}</b> — Costo macchina: <b>${costMachine}</b><br>
-        Totale: <b>${totalCost}</b>
+        Totale: <b>${totalCost}</b><br>
+        <p style="margin:6px 0 0;">Preset slicer: <span id="estimate-preset-value">—</span></p>
       `;
       if (data.gcode_url) {
         html += ` — <a href="${data.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>`;
       }
-      if (presetUsed || presetReportedId || presetExpectedId) {
-        let presetLabel = '';
-        if (presetUsed) {
-          const baseLabel = presetDefault ? `${presetUsed} (default)` : presetUsed;
-          presetLabel += `<b>${escapeHtml(baseLabel)}</b>`;
-        }
-
-        if (presetLabel) {
-          html += `<br>Preset Prusa: ${presetLabel}`;
-        } else {
-          html += '<br>Preset Prusa:';
-        }
-
-        if (presetReportedId) {
-          html += `<br><small>ID G-code: <b>${escapeHtml(presetReportedId)}</b></small>`;
-        }
-        if (presetExpectedId) {
-          html += `<br><small>ID atteso: <b>${escapeHtml(presetExpectedId)}</b></small>`;
-        }
-
-        if (presetMatch === false && presetReportedId && presetExpectedId) {
-          html += '<br><span style="color:#ff6b6b;font-weight:bold;">⚠️ Prusa ha usato un ID diverso dal preset previsto!</span>';
-        }
+      if (presetUsageHtml) {
+        html += `<br>${presetUsageHtml}`;
       }
       const debugHtml = renderEstimateDebug(data.debug);
       if (debugHtml) {
         html += `<br>${debugHtml}`;
       }
       outputElement.innerHTML = html;
+      const presetValueElement = document.getElementById('estimate-preset-value');
+      if (presetValueElement) {
+        presetValueElement.textContent = selectedPresetLabel || 'N/D';
+      }
     }
     return data;
   } catch (error) {
@@ -253,9 +245,9 @@ function setViewerStatus(message) {
   }
 }
 
-function collectManualOverrides(presetDefinition) {
-  const overrides = {};
-  let hasOverrides = false;
+function collectActiveSettings() {
+  const settings = {};
+  let hasSettings = false;
 
   const numericFields = [
     { id: 'layer_h', key: 'layer_h' },
@@ -264,8 +256,6 @@ function collectManualOverrides(presetDefinition) {
     { id: 'print_speed', key: 'print_speed' },
     { id: 'travel_speed', key: 'travel_speed' },
   ];
-
-  const tolerance = 1e-6;
 
   for (const field of numericFields) {
     const element = document.getElementById(field.id);
@@ -280,19 +270,11 @@ function collectManualOverrides(presetDefinition) {
     if (!Number.isFinite(value)) {
       continue;
     }
-
-    const presetValue =
-      presetDefinition && typeof presetDefinition[field.key] === 'number'
-        ? Number(presetDefinition[field.key])
-        : null;
-
-    if (presetValue == null || Math.abs(value - presetValue) > tolerance) {
-      overrides[field.key] = value;
-      hasOverrides = true;
-    }
+    settings[field.key] = value;
+    hasSettings = true;
   }
 
-  return hasOverrides ? overrides : null;
+  return hasSettings ? settings : null;
 }
 
 async function parseJson(response) {
@@ -406,9 +388,13 @@ async function requestLegacyEstimate(payload, selectedItem) {
   }
   const presetSelect = document.getElementById('preset');
   const presetValue = payload && payload.preset_print ? payload.preset_print : (presetSelect && presetSelect.value);
+  const presetFilamentValue = payload && payload.preset_filament ? payload.preset_filament : null;
   const printerPresetValue = payload && payload.preset_printer ? payload.preset_printer : null;
   if (presetValue) {
     formData.append('preset_print', presetValue);
+  }
+  if (presetFilamentValue) {
+    formData.append('preset_filament', presetFilamentValue);
   }
   if (printerPresetValue) {
     formData.append('preset_printer', printerPresetValue);
@@ -452,6 +438,9 @@ async function requestLegacyEstimate(payload, selectedItem) {
     }
     if (presetValue) {
       retryForm.append('preset_print', presetValue);
+    }
+    if (presetFilamentValue) {
+      retryForm.append('preset_filament', presetFilamentValue);
     }
     if (printerPresetValue) {
       retryForm.append('preset_printer', printerPresetValue);
@@ -510,6 +499,34 @@ function normalizeEstimateResponse(data, selectedItem) {
   const presetFilamentUsed = extractPresetUsed(source, 'filament', presetsUsed);
   const presetPrintDefault = determinePresetDefault(source, presetsUsed, 'print');
 
+  const prusaCmd = normalizePrusaslicerCmd(source.prusaslicer_cmd);
+  const prusaOverrides = normalizePrusaOverrides(source.override_settings);
+  const debug = normalizeEstimateDebug(source.debug);
+  if (prusaCmd || prusaOverrides) {
+    const enriched = debug && typeof debug === 'object' ? debug : {};
+    if (prusaCmd) {
+      enriched.prusaslicer_cmd = prusaCmd;
+    }
+    if (prusaOverrides) {
+      enriched.prusaslicer_overrides = prusaOverrides;
+    }
+    return {
+      time_s: toNumber(source.time_s),
+      filament_g: toNumber(source.filament_g),
+      cost_filament: costFilament,
+      cost_machine: costMachine,
+      total,
+      currency: source.currency || (selectedItem && selectedItem.currency) || 'EUR',
+      gcode_url: source.gcode_url || source.download_url || null,
+      preset_print_used: presetPrintUsed,
+      preset_printer_used: presetPrinterUsed,
+      preset_filament_used: presetFilamentUsed,
+      preset_print_is_default: presetPrintDefault,
+      presets_used: presetsUsed,
+      debug: enriched,
+    };
+  }
+
   return {
     time_s: toNumber(source.time_s),
     filament_g: toNumber(source.filament_g),
@@ -523,7 +540,7 @@ function normalizeEstimateResponse(data, selectedItem) {
     preset_filament_used: presetFilamentUsed,
     preset_print_is_default: presetPrintDefault,
     presets_used: presetsUsed,
-    debug: normalizeEstimateDebug(source.debug),
+    debug,
   };
 }
 
@@ -548,15 +565,68 @@ function normalizePresetsUsed(raw) {
       (typeof isDefaultFlag === 'string' && isDefaultFlag.trim().toLowerCase() === 'true') ||
       (foundFlag === false || (typeof foundFlag === 'string' && foundFlag.trim().toLowerCase() === 'false'))
     );
+    const reportedId = safeString(value.reported_id);
+    const expectedId = safeString(value.expected_id);
+    const matchesFlag = value.reported_matches_expected;
+    const matchesExpected = matchesFlag == null
+      ? null
+      : matchesFlag === true || (typeof matchesFlag === 'string' && matchesFlag.trim().toLowerCase() === 'true');
     normalized[kind] = {
       requested: safeString(value.requested ?? value.selected ?? value.desired),
       path,
       filename,
       found,
       is_default: isDefault,
+      reported_id: reportedId || null,
+      expected_id: expectedId || null,
+      matches_expected: matchesExpected,
     };
   }
   return Object.keys(normalized).length ? normalized : null;
+}
+
+function renderPresetUsage(presetsUsed) {
+  if (!presetsUsed || typeof presetsUsed !== 'object') {
+    return '';
+  }
+
+  const labels = {
+    print: 'Stampa',
+    filament: 'Filamento',
+    printer: 'Stampante',
+  };
+
+  let html = '<div style="margin-top:4px;"><b>Preset Prusa:</b>';
+  const kinds = ['print', 'filament', 'printer'];
+  for (const kind of kinds) {
+    const entry = presetsUsed[kind];
+    if (!entry) continue;
+
+    const label = labels[kind] || kind;
+    const requested = entry.requested || 'n/d';
+    const used = entry.filename || entry.path || 'n/d';
+    const defaultNote = entry.is_default ? ' (default)' : '';
+
+    html += `<br><small>${escapeHtml(label)}: richiesto <b>${escapeHtml(requested)}</b> → ` +
+      `usato <b>${escapeHtml(used)}</b>${defaultNote}</small>`;
+
+    if (entry.reported_id || entry.expected_id) {
+      const idParts = [];
+      if (entry.reported_id) {
+        idParts.push(`ID G-code: <b>${escapeHtml(entry.reported_id)}</b>`);
+      }
+      if (entry.expected_id) {
+        idParts.push(`atteso <b>${escapeHtml(entry.expected_id)}</b>`);
+      }
+      if (idParts.length) {
+        const mismatch = entry.matches_expected === false ? ' ⚠️' : '';
+        html += `<br><small>${idParts.join(' — ')}${mismatch}</small>`;
+      }
+    }
+  }
+
+  html += '</div>';
+  return html;
 }
 
 function extractPresetUsed(data, kind, presetsUsed) {
@@ -692,6 +762,32 @@ function normalizeEstimateDebug(raw) {
     debug.motion = motion;
   }
   return Object.keys(debug).length ? debug : null;
+}
+
+function normalizePrusaslicerCmd(raw) {
+  if (!raw) {
+    return null;
+  }
+  if (Array.isArray(raw)) {
+    const parts = raw.map((value) => safeString(value)).filter(Boolean);
+    return parts.length ? parts : null;
+  }
+  const text = safeString(raw);
+  if (!text) {
+    return null;
+  }
+  const tokens = text.split(/\s+/).map((token) => token.trim()).filter(Boolean);
+  return tokens.length ? tokens : null;
+}
+
+function normalizePrusaOverrides(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const overrides = Object.entries(raw)
+    .map(([key, value]) => ({ key: safeString(key), value: toNumber(value) }))
+    .filter((entry) => entry.key && entry.value != null);
+  return overrides.length ? overrides : null;
 }
 
 function normalizeCuraDebug(raw) {
@@ -906,6 +1002,10 @@ function renderEstimateDebug(debug) {
     return '';
   }
   const sections = [];
+  const prusaSection = renderPrusaDebug(debug.prusaslicer_cmd, debug.prusaslicer_overrides, debug.presets_used);
+  if (prusaSection) {
+    sections.push(prusaSection);
+  }
   const motionSection = renderMotionDebug(debug.motion);
   if (motionSection) {
     sections.push(motionSection);
@@ -919,6 +1019,54 @@ function renderEstimateDebug(debug) {
   }
   const body = sections.join('<hr class="estimate-debug-sep">');
   return `<details class="estimate-debug"><summary>Debug slicing</summary>${body}</details>`;
+}
+
+function renderPrusaDebug(cmd, overrides, presetsUsed) {
+  const hasCmd = Array.isArray(cmd) && cmd.length;
+  const normalizedOverrides = normalizePrusaOverrides(overrides);
+  const normalizedPresets = normalizePresetsUsed(presetsUsed);
+  const hasOverrides = normalizedOverrides.length > 0;
+  const hasPresets = normalizedPresets != null;
+  if (!hasCmd && !hasOverrides && !hasPresets) {
+    return '';
+  }
+  const parts = [];
+  if (hasCmd) {
+    const rendered = escapeHtml(cmd.join(' '));
+    parts.push(`<div>Comando PrusaSlicer: <code>${rendered}</code></div>`);
+  }
+  if (hasOverrides) {
+    const renderedOverrides = normalizedOverrides
+      .map((entry) => `${escapeHtml(entry.key)}=${escapeHtml(formatNumber(entry.value, 3))}`)
+      .join(', ');
+    parts.push(`<div>Override applicati: <code>${renderedOverrides}</code></div>`);
+  }
+  if (hasPresets) {
+    const usage = renderPresetUsage(normalizedPresets);
+    if (usage) {
+      parts.push(usage);
+    }
+  }
+  return `<div class="estimate-debug-block">${parts.join('<br>')}</div>`;
+}
+
+function normalizePrusaOverrides(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        if (!entry.key || typeof entry.value !== 'number') return null;
+        return { key: String(entry.key), value: Number(entry.value) };
+      })
+      .filter(Boolean);
+  }
+  if (typeof raw === 'object') {
+    return Object.entries(raw)
+      .map(([key, value]) => ({ key, value: Number(value) }))
+      .filter((entry) => entry.key && Number.isFinite(entry.value));
+  }
+  return [];
 }
 
 function renderMotionDebug(motion) {

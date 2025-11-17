@@ -20,6 +20,15 @@ setupViewerInteractions();
 setupFileInputs();
 setupWizard();
 
+function getSelectedPresetLabel() {
+  const select = document.getElementById('preset');
+  if (!select) {
+    return '';
+  }
+  const option = select.options[select.selectedIndex];
+  return (option && option.text) || select.value || '';
+}
+
 if (fetchButton) {
   fetchButton.addEventListener('click', handleFetchFromUrl);
 }
@@ -185,6 +194,7 @@ async function handleEstimate(options = {}) {
       const costFilament = formatCurrency(data.cost_filament, currency);
       const costMachine = formatCurrency(data.cost_machine, currency);
       const totalCost = formatCurrency(data.total, currency);
+      const selectedPresetLabel = getSelectedPresetLabel();
       const presetUsed = data && data.preset_print_used ? String(data.preset_print_used) : null;
       const presetDefault = Boolean(data && data.preset_print_is_default);
       const presetReportedId = data && data.preset_print_reported_id ? String(data.preset_print_reported_id) : null;
@@ -193,7 +203,8 @@ async function handleEstimate(options = {}) {
       let html = `
         Tempo: <b>${minutes != null ? `${minutes} min` : 'n/d'}</b> — Filamento: <b>${filament != null ? `${filament} g` : 'n/d'}</b><br>
         Costo filamento: <b>${costFilament}</b> — Costo macchina: <b>${costMachine}</b><br>
-        Totale: <b>${totalCost}</b>
+        Totale: <b>${totalCost}</b><br>
+        <p style="margin:6px 0 0;">Preset slicer: <span id="estimate-preset-value">—</span></p>
       `;
       if (data.gcode_url) {
         html += ` — <a href="${data.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>`;
@@ -227,6 +238,10 @@ async function handleEstimate(options = {}) {
         html += `<br>${debugHtml}`;
       }
       outputElement.innerHTML = html;
+      const presetValueElement = document.getElementById('estimate-preset-value');
+      if (presetValueElement) {
+        presetValueElement.textContent = selectedPresetLabel || 'N/D';
+      }
     }
     return data;
   } catch (error) {

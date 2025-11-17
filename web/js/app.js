@@ -20,6 +20,15 @@ setupViewerInteractions();
 setupFileInputs();
 setupWizard();
 
+function getSelectedPresetLabel() {
+  const select = document.getElementById('preset');
+  if (!select) {
+    return '';
+  }
+  const option = select.options[select.selectedIndex];
+  return (option && option.text) || select.value || '';
+}
+
 if (fetchButton) {
   fetchButton.addEventListener('click', handleFetchFromUrl);
 }
@@ -185,48 +194,29 @@ async function handleEstimate(options = {}) {
       const costFilament = formatCurrency(data.cost_filament, currency);
       const costMachine = formatCurrency(data.cost_machine, currency);
       const totalCost = formatCurrency(data.total, currency);
-      const presetUsed = data && data.preset_print_used ? String(data.preset_print_used) : null;
-      const presetDefault = Boolean(data && data.preset_print_is_default);
-      const presetReportedId = data && data.preset_print_reported_id ? String(data.preset_print_reported_id) : null;
-      const presetExpectedId = data && data.preset_print_expected_id ? String(data.preset_print_expected_id) : null;
-      const presetMatch = typeof (data && data.preset_print_matches) === 'boolean' ? Boolean(data.preset_print_matches) : null;
+      const selectedPresetLabel = getSelectedPresetLabel();
+      const presetUsageHtml = renderPresetUsage(data && data.presets_used);
       let html = `
         Tempo: <b>${minutes != null ? `${minutes} min` : 'n/d'}</b> — Filamento: <b>${filament != null ? `${filament} g` : 'n/d'}</b><br>
         Costo filamento: <b>${costFilament}</b> — Costo macchina: <b>${costMachine}</b><br>
-        Totale: <b>${totalCost}</b>
+        Totale: <b>${totalCost}</b><br>
+        <p style="margin:6px 0 0;">Preset slicer: <span id="estimate-preset-value">—</span></p>
       `;
       if (data.gcode_url) {
         html += ` — <a href="${data.gcode_url}" target="_blank" style="color:var(--accent)">Scarica G-code</a>`;
       }
-      if (presetUsed || presetReportedId || presetExpectedId) {
-        let presetLabel = '';
-        if (presetUsed) {
-          const baseLabel = presetDefault ? `${presetUsed} (default)` : presetUsed;
-          presetLabel += `<b>${escapeHtml(baseLabel)}</b>`;
-        }
-
-        if (presetLabel) {
-          html += `<br>Preset Prusa: ${presetLabel}`;
-        } else {
-          html += '<br>Preset Prusa:';
-        }
-
-        if (presetReportedId) {
-          html += `<br><small>ID G-code: <b>${escapeHtml(presetReportedId)}</b></small>`;
-        }
-        if (presetExpectedId) {
-          html += `<br><small>ID atteso: <b>${escapeHtml(presetExpectedId)}</b></small>`;
-        }
-
-        if (presetMatch === false && presetReportedId && presetExpectedId) {
-          html += '<br><span style="color:#ff6b6b;font-weight:bold;">⚠️ Prusa ha usato un ID diverso dal preset previsto!</span>';
-        }
+      if (presetUsageHtml) {
+        html += `<br>${presetUsageHtml}`;
       }
       const debugHtml = renderEstimateDebug(data.debug);
       if (debugHtml) {
         html += `<br>${debugHtml}`;
       }
       outputElement.innerHTML = html;
+      const presetValueElement = document.getElementById('estimate-preset-value');
+      if (presetValueElement) {
+        presetValueElement.textContent = selectedPresetLabel || 'N/D';
+      }
     }
     return data;
   } catch (error) {
@@ -548,15 +538,68 @@ function normalizePresetsUsed(raw) {
       (typeof isDefaultFlag === 'string' && isDefaultFlag.trim().toLowerCase() === 'true') ||
       (foundFlag === false || (typeof foundFlag === 'string' && foundFlag.trim().toLowerCase() === 'false'))
     );
+    const reportedId = safeString(value.reported_id);
+    const expectedId = safeString(value.expected_id);
+    const matchesFlag = value.reported_matches_expected;
+    const matchesExpected = matchesFlag == null
+      ? null
+      : matchesFlag === true || (typeof matchesFlag === 'string' && matchesFlag.trim().toLowerCase() === 'true');
     normalized[kind] = {
       requested: safeString(value.requested ?? value.selected ?? value.desired),
       path,
       filename,
       found,
       is_default: isDefault,
+      reported_id: reportedId || null,
+      expected_id: expectedId || null,
+      matches_expected: matchesExpected,
     };
   }
   return Object.keys(normalized).length ? normalized : null;
+}
+
+function renderPresetUsage(presetsUsed) {
+  if (!presetsUsed || typeof presetsUsed !== 'object') {
+    return '';
+  }
+
+  const labels = {
+    print: 'Stampa',
+    filament: 'Filamento',
+    printer: 'Stampante',
+  };
+
+  let html = '<div style="margin-top:4px;"><b>Preset Prusa:</b>';
+  const kinds = ['print', 'filament', 'printer'];
+  for (const kind of kinds) {
+    const entry = presetsUsed[kind];
+    if (!entry) continue;
+
+    const label = labels[kind] || kind;
+    const requested = entry.requested || 'n/d';
+    const used = entry.filename || entry.path || 'n/d';
+    const defaultNote = entry.is_default ? ' (default)' : '';
+
+    html += `<br><small>${escapeHtml(label)}: richiesto <b>${escapeHtml(requested)}</b> → ` +
+      `usato <b>${escapeHtml(used)}</b>${defaultNote}</small>`;
+
+    if (entry.reported_id || entry.expected_id) {
+      const idParts = [];
+      if (entry.reported_id) {
+        idParts.push(`ID G-code: <b>${escapeHtml(entry.reported_id)}</b>`);
+      }
+      if (entry.expected_id) {
+        idParts.push(`atteso <b>${escapeHtml(entry.expected_id)}</b>`);
+      }
+      if (idParts.length) {
+        const mismatch = entry.matches_expected === false ? ' ⚠️' : '';
+        html += `<br><small>${idParts.join(' — ')}${mismatch}</small>`;
+      }
+    }
+  }
+
+  html += '</div>';
+  return html;
 }
 
 function extractPresetUsed(data, kind, presetsUsed) {

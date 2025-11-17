@@ -322,24 +322,18 @@ def _profile_candidates(kind: str, preset: str) -> list[Path]:
 
 
 def _resolve_profile_path(kind: str, preset: str | None) -> tuple[Path, bool]:
-    default_map = {
-        "print": DEFAULT_PRINT_PROFILE,
-        "filament": DEFAULT_FILAMENT_PROFILE,
-        "printer": DEFAULT_PRINTER_PROFILE,
-    }
-    default = default_map.get(kind, DEFAULT_PRINT_PROFILE)
-    if not preset:
-        return default, False
+    if not preset or not str(preset).strip():
+        raise HTTPException(400, f"preset_{kind} mancante: passalo dal frontend")
+
     text = str(preset).strip()
-    if not text:
-        return default, False
     for candidate in _profile_candidates(kind, text):
         try:
             if candidate.is_file():
                 return candidate.resolve(), True
         except Exception:
             continue
-    return default, False
+
+    raise HTTPException(400, f"Profilo {kind} '{text}' non trovato nel container")
 
 
 def _slug(value: str | None) -> str:
@@ -1151,23 +1145,6 @@ def _resolve_profiles(
         "found": print_found,
     }
 
-    if profiles["print"]["requested"] and not print_found:
-        raise HTTPException(400, f"Profilo di stampa '{profiles['print']['requested']}' non trovato.")
-
-    if profiles["printer"]["requested"] and not printer_found:
-        _LOG.warning(
-            "Preset stampante '%s' non trovato, uso profilo di default %s",
-            profiles["printer"]["requested"],
-            printer_profile,
-        )
-
-    if profiles["filament"]["requested"] and not filament_found:
-        _LOG.warning(
-            "Preset filamento '%s' non trovato, uso profilo di default %s",
-            profiles["filament"]["requested"],
-            filament_profile,
-        )
-
     return profiles
 
 
@@ -1220,7 +1197,7 @@ def _invoke_prusaslicer(
     input_path: str,
     output_path: str,
     profiles: dict[str, dict[str, object]],
-) -> None:
+) -> list[str]:
     try:
         base_cmd = _resolve_prusaslicer_cmd()
     except FileNotFoundError:
@@ -1255,10 +1232,12 @@ def _invoke_prusaslicer(
         msg = res.stderr or res.stdout or "Errore sconosciuto"
         raise HTTPException(500, f"Errore PrusaSlicer: {msg[:600]}")
 
+    return args
+
 def _run_prusaslicer(
     model_path: str,
     profiles: dict[str, dict[str, object]],
-) -> str:
+) -> tuple[str, list[str]]:
     with tempfile.TemporaryDirectory() as td:
         out_path = _build_gcode_output_path(
             td,
@@ -1267,7 +1246,7 @@ def _run_prusaslicer(
             profiles["filament"].get("requested"),
             profiles["printer"].get("requested"),
         )
-        _invoke_prusaslicer(
+        executed_cmd = _invoke_prusaslicer(
             model_path,
             out_path,
             profiles,
@@ -1277,7 +1256,7 @@ def _run_prusaslicer(
             raise HTTPException(500, "G-code non generato.")
 
         with open(out_path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
+            return f.read(), executed_cmd
 
 def _resolve_model_path(viewer_url: str | None) -> str | None:
     if not viewer_url:
@@ -1300,7 +1279,7 @@ def _estimate_print_job(
     price_per_kg: float | None,
     rate: float | None,
 ) -> dict:
-    gcode = _run_prusaslicer(model_path, profiles)
+    gcode, prusaslicer_cmd = _run_prusaslicer(model_path, profiles)
 
     preset_ids = _parse_preset_ids_from_gcode(gcode)
     filament_g = None
@@ -1421,6 +1400,7 @@ def _estimate_print_job(
         "preset_printer_reported_id": presets_used["printer"].get("reported_id"),
         "preset_filament_reported_id": presets_used["filament"].get("reported_id"),
         "presets_used": presets_used,
+        "prusaslicer_cmd": prusaslicer_cmd,
     }
 
 @app.post("/api/estimate")

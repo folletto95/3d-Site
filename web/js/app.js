@@ -1,5 +1,5 @@
 import { initPalette } from './palette.js';
-import { initPresets, getPresetDefinition, getPresetProfileName, getPresetPrinterProfile } from './presets.js';
+import { initPresets, getPresetDefinition, getPresetProfileName, getPresetFilamentProfile, getPresetPrinterProfile } from './presets.js';
 import { state, getSelectedInventoryItem, setSelectedMachine } from './state.js';
 import { resetViewer, showViewer } from './viewer.js';
 import { apiFetch, getApiBase } from './utils/api.js';
@@ -166,12 +166,14 @@ async function handleEstimate(options = {}) {
   const presetDefinition = getPresetDefinition(presetKey);
   const machineFromPreset = (presetDefinition && presetDefinition.machine) || state.selectedMachine || 'generic';
   const presetProfileName = getPresetProfileName(presetKey);
+  const presetFilamentProfile = getPresetFilamentProfile(presetKey);
   const presetPrinterProfile = getPresetPrinterProfile(presetKey);
   const payload = {
     viewer_url: state.currentViewerUrl,
     inventory_key: state.selectedKey,
     machine: machineFromPreset,
     preset_print: presetProfileName || undefined,
+    preset_filament: presetFilamentProfile || undefined,
     preset_printer: presetPrinterProfile || undefined,
   };
 
@@ -396,9 +398,13 @@ async function requestLegacyEstimate(payload, selectedItem) {
   }
   const presetSelect = document.getElementById('preset');
   const presetValue = payload && payload.preset_print ? payload.preset_print : (presetSelect && presetSelect.value);
+  const presetFilamentValue = payload && payload.preset_filament ? payload.preset_filament : null;
   const printerPresetValue = payload && payload.preset_printer ? payload.preset_printer : null;
   if (presetValue) {
     formData.append('preset_print', presetValue);
+  }
+  if (presetFilamentValue) {
+    formData.append('preset_filament', presetFilamentValue);
   }
   if (printerPresetValue) {
     formData.append('preset_printer', printerPresetValue);
@@ -442,6 +448,9 @@ async function requestLegacyEstimate(payload, selectedItem) {
     }
     if (presetValue) {
       retryForm.append('preset_print', presetValue);
+    }
+    if (presetFilamentValue) {
+      retryForm.append('preset_filament', presetFilamentValue);
     }
     if (printerPresetValue) {
       retryForm.append('preset_printer', printerPresetValue);
@@ -500,6 +509,28 @@ function normalizeEstimateResponse(data, selectedItem) {
   const presetFilamentUsed = extractPresetUsed(source, 'filament', presetsUsed);
   const presetPrintDefault = determinePresetDefault(source, presetsUsed, 'print');
 
+  const prusaCmd = normalizePrusaslicerCmd(source.prusaslicer_cmd);
+  const debug = normalizeEstimateDebug(source.debug);
+  if (prusaCmd) {
+    const enriched = debug && typeof debug === 'object' ? debug : {};
+    enriched.prusaslicer_cmd = prusaCmd;
+    return {
+      time_s: toNumber(source.time_s),
+      filament_g: toNumber(source.filament_g),
+      cost_filament: costFilament,
+      cost_machine: costMachine,
+      total,
+      currency: source.currency || (selectedItem && selectedItem.currency) || 'EUR',
+      gcode_url: source.gcode_url || source.download_url || null,
+      preset_print_used: presetPrintUsed,
+      preset_printer_used: presetPrinterUsed,
+      preset_filament_used: presetFilamentUsed,
+      preset_print_is_default: presetPrintDefault,
+      presets_used: presetsUsed,
+      debug: enriched,
+    };
+  }
+
   return {
     time_s: toNumber(source.time_s),
     filament_g: toNumber(source.filament_g),
@@ -513,7 +544,7 @@ function normalizeEstimateResponse(data, selectedItem) {
     preset_filament_used: presetFilamentUsed,
     preset_print_is_default: presetPrintDefault,
     presets_used: presetsUsed,
-    debug: normalizeEstimateDebug(source.debug),
+    debug,
   };
 }
 
@@ -737,6 +768,22 @@ function normalizeEstimateDebug(raw) {
   return Object.keys(debug).length ? debug : null;
 }
 
+function normalizePrusaslicerCmd(raw) {
+  if (!raw) {
+    return null;
+  }
+  if (Array.isArray(raw)) {
+    const parts = raw.map((value) => safeString(value)).filter(Boolean);
+    return parts.length ? parts : null;
+  }
+  const text = safeString(raw);
+  if (!text) {
+    return null;
+  }
+  const tokens = text.split(/\s+/).map((token) => token.trim()).filter(Boolean);
+  return tokens.length ? tokens : null;
+}
+
 function normalizeCuraDebug(raw) {
   if (!raw || typeof raw !== 'object') {
     return null;
@@ -949,6 +996,10 @@ function renderEstimateDebug(debug) {
     return '';
   }
   const sections = [];
+  const prusaSection = renderPrusaDebug(debug.prusaslicer_cmd);
+  if (prusaSection) {
+    sections.push(prusaSection);
+  }
   const motionSection = renderMotionDebug(debug.motion);
   if (motionSection) {
     sections.push(motionSection);
@@ -962,6 +1013,14 @@ function renderEstimateDebug(debug) {
   }
   const body = sections.join('<hr class="estimate-debug-sep">');
   return `<details class="estimate-debug"><summary>Debug slicing</summary>${body}</details>`;
+}
+
+function renderPrusaDebug(cmd) {
+  if (!Array.isArray(cmd) || !cmd.length) {
+    return '';
+  }
+  const rendered = escapeHtml(cmd.join(' '));
+  return `<div class="estimate-debug-block">Comando PrusaSlicer: <code>${rendered}</code></div>`;
 }
 
 function renderMotionDebug(motion) {

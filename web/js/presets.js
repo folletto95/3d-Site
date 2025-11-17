@@ -113,6 +113,14 @@ export function getPresetFilamentProfile(key) {
   return null;
 }
 
+export function getPresetFilamentProfile(key) {
+  const preset = getPresetDefinition(key);
+  if (preset && preset.filament_profile) {
+    return preset.filament_profile;
+  }
+  return 'filament.ini';
+}
+
 export function getPresetPrinterProfile(key) {
   const preset = getPresetDefinition(key);
   if (preset && preset.printer_profile) {

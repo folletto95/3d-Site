@@ -163,7 +163,31 @@ async function handleEstimate(options = {}) {
 
   const presetSelect = document.getElementById('preset');
   const presetKey = presetSelect && presetSelect.value ? presetSelect.value : '';
+  if (!presetKey) {
+    if (!silent) {
+      alert('Seleziona un preset prima di calcolare la stima');
+    }
+    isEstimating = false;
+    estimateButton.disabled = false;
+    estimateButton.textContent = previousText || 'Stima';
+    if (outputElement) {
+      outputElement.innerHTML = '';
+    }
+    return null;
+  }
   const presetDefinition = getPresetDefinition(presetKey);
+  if (!presetDefinition) {
+    if (!silent) {
+      alert('Preset non valido, seleziona un profilo disponibile');
+    }
+    isEstimating = false;
+    estimateButton.disabled = false;
+    estimateButton.textContent = previousText || 'Stima';
+    if (outputElement) {
+      outputElement.innerHTML = '';
+    }
+    return null;
+  }
   const machineFromPreset = (presetDefinition && presetDefinition.machine) || state.selectedMachine || 'generic';
   const presetProfileName = getPresetProfileName(presetKey);
   const presetFilamentProfile = getPresetFilamentProfile(presetKey);
@@ -763,6 +787,10 @@ function normalizeEstimateDebug(raw) {
     return null;
   }
   const debug = {};
+  const presets = normalizePresetDebug(raw.presets);
+  if (presets) {
+    debug.presets = presets;
+  }
   const cura = normalizeCuraDebug(raw.cura);
   if (cura) {
     debug.cura = cura;
@@ -772,6 +800,30 @@ function normalizeEstimateDebug(raw) {
     debug.motion = motion;
   }
   return Object.keys(debug).length ? debug : null;
+}
+
+function normalizePresetDebug(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const kinds = ['print', 'filament', 'printer'];
+  const normalized = {};
+  for (const kind of kinds) {
+    const entry = raw[kind];
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const requested = safeString(entry.requested);
+    const path = safeString(entry.path);
+    const foundFlag = entry.found;
+    const found = foundFlag === true || (typeof foundFlag === 'string' && foundFlag.trim().toLowerCase() === 'true');
+    normalized[kind] = {
+      requested,
+      path,
+      found,
+    };
+  }
+  return Object.keys(normalized).length ? normalized : null;
 }
 
 function normalizePrusaslicerCmd(raw) {
@@ -1016,6 +1068,10 @@ function renderEstimateDebug(debug) {
   if (prusaSection) {
     sections.push(prusaSection);
   }
+  const presetsSection = renderPresetDebug(debug.presets);
+  if (presetsSection) {
+    sections.push(presetsSection);
+  }
   const motionSection = renderMotionDebug(debug.motion);
   if (motionSection) {
     sections.push(motionSection);
@@ -1049,6 +1105,30 @@ function renderPrusaDebug(cmd, overrides) {
     parts.push(`<div>Override applicati: <code>${renderedOverrides}</code></div>`);
   }
   return `<div class="estimate-debug-block">${parts.join('<br>')}</div>`;
+}
+
+function renderPresetDebug(presets) {
+  if (!presets || typeof presets !== 'object') {
+    return '';
+  }
+
+  const rows = [];
+  const labels = { print: 'Stampa', filament: 'Filamento', printer: 'Stampante' };
+  for (const kind of ['print', 'filament', 'printer']) {
+    const entry = presets[kind];
+    if (!entry) continue;
+    const label = labels[kind] || kind;
+    const requested = entry.requested || 'n/d';
+    const resolved = entry.path || 'n/d';
+    const status = entry.found === false ? ' (non trovato)' : '';
+    rows.push(`<div><small>${escapeHtml(label)}: richiesto <b>${escapeHtml(requested)}</b> → risolto <b>${escapeHtml(resolved)}</b>${status}</small></div>`);
+  }
+
+  if (!rows.length) {
+    return '';
+  }
+
+  return `<div class="estimate-debug-block"><div>Preset richiesti dal frontend:</div>${rows.join('')}</div>`;
 }
 
 function renderMotionDebug(motion) {
